@@ -1,0 +1,13 @@
+{
+  "name": "fabric-sync",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Щоденна синхронізація цін і наявності тканин постачальника з Shopify",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "check": "SUPPLIER_ONLY=1 node src/sync.mjs",
+    "dry": "DRY_RUN=1 node src/sync.mjs",
+    "sync": "node src/sync.mjs"
+  }
+}
