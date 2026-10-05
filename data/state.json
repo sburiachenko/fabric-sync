@@ -1,1 +1,29 @@
-{}
+{
+  "https://cottonville.com.ua/ua/p1736171204-flanel-rozhdestvenskie-oleni.html": {
+    "url": "https://cottonville.com.ua/ua/p1736171204-flanel-rozhdestvenskie-oleni.html",
+    "name": "Фланель Різдвяні олені 240 см",
+    "code": "WF-110",
+    "price": 266,
+    "status": "InStock",
+    "available": true,
+    "checkedAt": "2026-10-05T18:02:22.711Z"
+  },
+  "https://cottonville.com.ua/ua/p2800137091-flanel-elochki-oleni.html": {
+    "url": "https://cottonville.com.ua/ua/p2800137091-flanel-elochki-oleni.html",
+    "name": "Фланель ялинки, олені коричневі на білому, ширина 240 см",
+    "code": "TF-854",
+    "price": 169.4,
+    "status": "InStock",
+    "available": true,
+    "checkedAt": "2026-10-05T18:02:24.963Z"
+  },
+  "https://cottonville.com.ua/ua/p2415740897-flanel-mishki-radugi.html": {
+    "url": "https://cottonville.com.ua/ua/p2415740897-flanel-mishki-radugi.html",
+    "name": "Фланель Ведмедики, веселки гірчично-сірі",
+    "code": "TF-686",
+    "price": 242,
+    "status": "InStock",
+    "available": true,
+    "checkedAt": "2026-10-05T18:02:26.238Z"
+  }
+}
