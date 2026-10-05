@@ -1,100 +1,91 @@
-// Щоденна синхронізація: постачальник → Shopify.
+// Щоденна синхронізація: постачальник → варіанти товару в Shopify.
+// Ціну виробу задаєш ти вручну — скрипт її НЕ змінює.
+// Скрипт: тканина є → варіант можна купити; тканини немає → варіант недоступний.
+// Зміни ціни/коду в постачальника — лише у звіті.
+//
 // Режими:
-//   DRY_RUN=1  — лише читає й показує, що змінилося б (без змін у Shopify)
-//   SUPPLIER_ONLY=1 — перевірити лише парсинг сайту постачальника (ключі Shopify не потрібні)
+//   DRY_RUN=1       — показати, що змінилося б (без змін у Shopify)
+//   SUPPLIER_ONLY=1 — лише перевірити сайт постачальника (ключі Shopify не потрібні)
 
 import { readFile, writeFile, appendFile } from 'node:fs/promises';
 import { fetchSupplierProduct } from './supplier.mjs';
 import { createShopifyClient } from './shopify.mjs';
 
-const DRY_RUN = process.env.DRY_RUN === '1' || process.env.DRY_RUN === 'true';
-const SUPPLIER_ONLY = process.env.SUPPLIER_ONLY === '1' || process.env.SUPPLIER_ONLY === 'true';
+const DRY_RUN = ['1', 'true'].includes(process.env.DRY_RUN);
+const SUPPLIER_ONLY = ['1', 'true'].includes(process.env.SUPPLIER_ONLY);
 const STATE_FILE = new URL('../data/state.json', import.meta.url);
 const CONFIG_FILE = new URL('../config/products.json', import.meta.url);
 
 const config = JSON.parse(await readFile(CONFIG_FILE, 'utf8'));
 const prevState = await readFile(STATE_FILE, 'utf8').then(JSON.parse).catch(() => ({}));
 const newState = { ...prevState };
-const report = [];   // рядки звіту
-const alerts = [];   // що потребує ручного рішення
+const report = [];
+const alerts = [];
 let errors = 0;
+let changed = false;
 
-const shopify = SUPPLIER_ONLY
-  ? null
-  : await createShopifyClient({
-      shop: required('SHOPIFY_SHOP'),
-      clientId: required('SHOPIFY_CLIENT_ID'),
-      clientSecret: required('SHOPIFY_CLIENT_SECRET'),
-    });
+let shopify = null;
+let variantsBySku = new Map();
+let productId = null;
+if (!SUPPLIER_ONLY) {
+  shopify = await createShopifyClient({
+    shop: required('SHOPIFY_SHOP'),
+    clientId: required('SHOPIFY_CLIENT_ID'),
+    clientSecret: required('SHOPIFY_CLIENT_SECRET'),
+  });
+  const product = await shopify.getProduct(config.shopifyProductId);
+  productId = product.id;
+  variantsBySku = new Map(product.variants.nodes.filter((v) => v.sku).map((v) => [v.sku, v]));
+}
 
-for (const item of config.products.filter((p) => p.enabled !== false)) {
-  const label = item.name;
+const items = config.products.filter((p) => p.enabled !== false);
+const updates = [];
+
+for (const item of items) {
+  let label = item.variantName || item.shopifySku || item.supplierUrl;
   try {
     const s = await fetchSupplierProduct(item.supplierUrl);
+    label = item.variantName || s.name || label;
     const prev = prevState[item.supplierUrl];
     newState[item.supplierUrl] = s;
 
     if (s.price == null || s.available == null) {
       alerts.push(`⚠️ ${label}: не вдалося прочитати ${s.price == null ? 'ціну' : 'наявність'} — перевір сторінку`);
     }
-
-    const supplierChanges = [];
-    if (prev && prev.price !== s.price) supplierChanges.push(`ціна тканини ${prev.price} → ${s.price} ₴`);
-    if (prev && prev.available !== s.available) supplierChanges.push(`наявність: ${s.status}`);
-    if (prev && prev.code !== s.code) supplierChanges.push(`код ${prev.code} → ${s.code}`);
-
-    const line = `${label} [${s.code ?? '?'}]: ${s.price ?? '?'} ₴/м, ${s.status ?? '?'}`;
-
-    if (SUPPLIER_ONLY) {
-      report.push(`• ${line}${supplierChanges.length ? ' — ЗМІНИ: ' + supplierChanges.join('; ') : ''}`);
-      continue;
+    if (prev && prev.price != null && s.price != null && prev.price !== s.price) {
+      const pct = ((s.price - prev.price) / prev.price * 100).toFixed(0);
+      alerts.push(`💰 ${label}: ціна тканини ${prev.price} → ${s.price} ₴/м (${pct > 0 ? '+' : ''}${pct}%) — перевір свою ціну`);
+      changed = true;
     }
+    if (prev && prev.code && s.code && prev.code !== s.code) {
+      alerts.push(`🔁 ${label}: код у постачальника змінився ${prev.code} → ${s.code}`);
+      changed = true;
+    }
+
+    const line = `${label} [${s.code ?? '?'}]: ${s.price ?? '?'} ₴/м, ${s.available ? 'є' : s.available === false ? 'НЕМАЄ' : '?'}`;
+
+    if (SUPPLIER_ONLY) { report.push(`• ${line}`); continue; }
 
     const sku = item.shopifySku || s.code;
-    if (!sku) { alerts.push(`⚠️ ${label}: немає SKU для пошуку в Shopify`); continue; }
-    const variant = await shopify.findVariantBySku(sku);
+    const variant = sku && variantsBySku.get(sku);
     if (!variant) {
-      report.push(`• ${line} — у Shopify немає варіанта з SKU "${sku}", пропускаю`);
+      report.push(`• ${line} — у товарі немає варіанта з SKU "${sku}" (запусти create-variants)`);
       continue;
     }
 
-    const update = {};
-    const actions = [];
-
-    // --- Ціна
-    if (s.price != null) {
-      const target = calcPrice(s.price, { ...config.pricing, ...(item.pricing || {}) });
-      const current = parseFloat(variant.price);
-      if (target !== current) {
-        const diffPct = current ? Math.abs(target - current) / current * 100 : 100;
-        const limit = item.pricing?.maxAutoChangePercent ?? config.pricing.maxAutoChangePercent;
-        if (diffPct > limit) {
-          alerts.push(`💰 ${label}: розрахункова ціна ${current} → ${target} ₴ (${diffPct.toFixed(0)}%) — більше ліміту ${limit}%, НЕ змінено автоматично`);
-        } else {
-          update.price = target;
-          actions.push(`ціна ${current} → ${target} ₴`);
-        }
-      }
-    }
-
-    // --- Наявність: є тканина → можна продавати під замовлення; немає → "немає в наявності"
     if (s.available != null) {
       const policy = s.available ? 'CONTINUE' : 'DENY';
       if (variant.inventoryPolicy !== policy) {
-        update.inventoryPolicy = policy;
-        actions.push(s.available ? 'знову в продажу' : 'знято з продажу (немає тканини)');
+        updates.push({ id: variant.id, inventoryPolicy: policy });
+        report.push(`• ${line} — ${DRY_RUN ? '[ПРОБНО] ' : ''}${s.available ? '✅ знову в продажу' : '⛔ знято з продажу'}`);
+        changed = true;
         if (!variant.inventoryItem?.tracked) {
-          alerts.push(`⚠️ ${label}: у варіанті вимкнено відстеження кількості — статус "немає" не спрацює. Увімкни "Відстежувати кількість" і постав 0`);
+          alerts.push(`⚠️ ${label}: у варіанті вимкнено облік кількості — "немає в наявності" не спрацює. Увімкни "Відстежувати кількість" і постав 0`);
         }
+        continue;
       }
     }
-
-    if (actions.length) {
-      if (!DRY_RUN) await shopify.updateVariant(variant.product.id, variant.id, update);
-      report.push(`• ${line} — ${DRY_RUN ? '[ПРОБНО] ' : ''}${actions.join('; ')}`);
-    } else {
-      report.push(`• ${line} — без змін`);
-    }
+    report.push(`• ${line} — без змін`);
   } catch (e) {
     errors++;
     alerts.push(`❌ ${label}: ${e.message}`);
@@ -102,6 +93,9 @@ for (const item of config.products.filter((p) => p.enabled !== false)) {
   await sleep(1500); // ввічлива пауза між запитами до сайту постачальника
 }
 
+if (updates.length && !DRY_RUN) {
+  await shopify.updateVariants(productId, updates);
+}
 if (!DRY_RUN) {
   await writeFile(STATE_FILE, JSON.stringify(newState, null, 2) + '\n');
 }
@@ -119,8 +113,7 @@ console.log(text);
 if (process.env.GITHUB_STEP_SUMMARY) {
   await appendFile(process.env.GITHUB_STEP_SUMMARY, '```\n' + text + '\n```\n');
 }
-const somethingChanged = report.some((r) => !r.endsWith('без змін')) || alerts.length;
-if (process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID && somethingChanged) {
+if (process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID && (changed || alerts.length)) {
   await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -128,15 +121,9 @@ if (process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID && somethingC
   }).catch((e) => console.error('Telegram:', e.message));
 }
 
-if (errors === config.products.length) process.exit(1);
+if (items.length && errors === items.length) process.exit(1);
 
 // ---------- helpers ----------
-
-export function calcPrice(fabricPrice, p) {
-  const cost = fabricPrice * p.meters + p.sewingCost + p.extraCost;
-  const raw = cost * (1 + p.marginPercent / 100);
-  return Math.ceil((raw + 1) / 10) * 10 - 1; // округлення вгору до ...9
-}
 
 function required(name) {
   const v = process.env[name];

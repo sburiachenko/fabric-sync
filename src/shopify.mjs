@@ -1,3 +1,5 @@
+export const toGid = (id) => (String(id).startsWith('gid://') ? String(id) : `gid://shopify/Product/${id}`);
+
 // Клієнт Shopify Admin GraphQL API.
 // Токен отримується через client credentials grant (застосунок із Dev Dashboard, діє ~24 год).
 
@@ -33,7 +35,72 @@ export async function createShopifyClient({ shop, clientId, clientSecret }) {
     return json.data;
   }
 
+  const check = (payload) => {
+    if (payload.userErrors?.length) throw new Error(`Shopify userErrors: ${JSON.stringify(payload.userErrors)}`);
+    return payload;
+  };
+
   return {
+    /** Товар з опціями та варіантами */
+    async getProduct(productId) {
+      const data = await gql(
+        `query($id: ID!) {
+          product(id: $id) {
+            id title handle status
+            options { id name optionValues { name } }
+            variants(first: 100) {
+              nodes { id title sku price inventoryPolicy inventoryItem { tracked } selectedOptions { name value } }
+            }
+          }
+        }`,
+        { id: toGid(productId) },
+      );
+      if (!data.product) throw new Error(`Товар ${productId} не знайдено в Shopify`);
+      return data.product;
+    },
+
+    /** Додати опцію (напр. "Тканина") з першим значенням. Стандартний варіант отримає це значення. */
+    async createOption(productId, name, firstValue) {
+      const data = await gql(
+        `mutation($productId: ID!, $options: [OptionCreateInput!]!) {
+          productOptionsCreate(productId: $productId, options: $options, variantStrategy: LEAVE_AS_IS) {
+            product { id }
+            userErrors { field message }
+          }
+        }`,
+        { productId: toGid(productId), options: [{ name, values: [{ name: firstValue }] }] },
+      );
+      return check(data.productOptionsCreate);
+    },
+
+    /** Створити варіанти пачкою */
+    async createVariants(productId, variants) {
+      const data = await gql(
+        `mutation($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+          productVariantsBulkCreate(productId: $productId, variants: $variants) {
+            productVariants { id title sku }
+            userErrors { field message }
+          }
+        }`,
+        { productId: toGid(productId), variants },
+      );
+      return check(data.productVariantsBulkCreate).productVariants;
+    },
+
+    /** Довільне оновлення варіантів пачкою */
+    async updateVariants(productId, variants) {
+      const data = await gql(
+        `mutation($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+          productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+            productVariants { id title sku }
+            userErrors { field message }
+          }
+        }`,
+        { productId: toGid(productId), variants },
+      );
+      return check(data.productVariantsBulkUpdate).productVariants;
+    },
+
     /** Знайти варіант за SKU */
     async findVariantBySku(sku) {
       const data = await gql(

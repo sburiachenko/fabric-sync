@@ -1,0 +1,70 @@
+name: Fabric sync
+
+on:
+  schedule:
+    # 04:00 UTC = 07:00 Київ (літній час) / 06:00 (зимовий)
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Режим запуску'
+        type: choice
+        default: dry-run
+        options:
+          - supplier-only            # лише перевірити сайт постачальника
+          - inspect                  # показати товар і варіанти в Shopify
+          - create-variants-dry-run  # показати, які варіанти буде створено
+          - create-variants          # створити варіанти тканин у товарі
+          - dry-run                  # синхронізація наявності — пробно
+          - live                     # синхронізація наявності — реально
+
+permissions:
+  contents: write   # щоб зберегти data/state.json (історію цін)
+
+concurrency:
+  group: fabric-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run sync
+        env:
+          SHOPIFY_SHOP: ${{ secrets.SHOPIFY_SHOP }}
+          SHOPIFY_CLIENT_ID: ${{ secrets.SHOPIFY_CLIENT_ID }}
+          SHOPIFY_CLIENT_SECRET: ${{ secrets.SHOPIFY_CLIENT_SECRET }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # За розкладом — реальна синхронізація; вручну — обраний режим
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'dry-run' && '1' || '0' }}
+          SUPPLIER_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'supplier-only' && '1' || '0' }}
+        if: ${{ github.event_name == 'schedule' || !contains(fromJSON('["inspect","create-variants-dry-run","create-variants"]'), inputs.mode) }}
+        run: node src/sync.mjs
+
+      - name: Variants
+        if: ${{ github.event_name == 'workflow_dispatch' && contains(fromJSON('["inspect","create-variants-dry-run","create-variants"]'), inputs.mode) }}
+        env:
+          SHOPIFY_SHOP: ${{ secrets.SHOPIFY_SHOP }}
+          SHOPIFY_CLIENT_ID: ${{ secrets.SHOPIFY_CLIENT_ID }}
+          SHOPIFY_CLIENT_SECRET: ${{ secrets.SHOPIFY_CLIENT_SECRET }}
+          MODE: ${{ inputs.mode == 'inspect' && 'inspect' || 'create' }}
+          DRY_RUN: ${{ inputs.mode == 'create-variants-dry-run' && '1' || '0' }}
+        run: node src/variants.mjs
+
+      - name: Save state
+        run: |
+          if [ -n "$(git status --porcelain data/)" ]; then
+            git config user.name "fabric-sync-bot"
+            git config user.email "actions@users.noreply.github.com"
+            git add data/state.json
+            git commit -m "chore: supplier state $(date -u +%F)"
+            git push
+          fi

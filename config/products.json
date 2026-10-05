@@ -1,31 +1,24 @@
 {
-  "pricing": {
-    "_comment": "Ціна виробу = (метраж × ціна тканини + пошив + фурнітура) × (1 + маржа%/100), округлено вгору до ...9 грн",
-    "meters": 1.5,
-    "sewingCost": 300,
-    "extraCost": 50,
-    "marginPercent": 60,
-    "maxAutoChangePercent": 10
-  },
+  "shopifyProductId": "15400212365621",
+  "optionName": "Тканина",
+  "_comment": "variantName — назва варіанта для покупця (якщо порожньо, береться з назви тканини постачальника). shopifySku заповнюється автоматично кодом постачальника.",
   "products": [
     {
-      "name": "Фланель Різдвяні олені",
       "supplierUrl": "https://cottonville.com.ua/ua/p1736171204-flanel-rozhdestvenskie-oleni.html",
+      "variantName": "",
       "shopifySku": "WF-110",
       "enabled": true
     },
     {
-      "name": "Фланель ялинки, олені коричневі на білому",
       "supplierUrl": "https://cottonville.com.ua/ua/p2800137091-flanel-elochki-oleni.html",
-      "shopifySku": "",
+      "variantName": "",
+      "shopifySku": "TF-854",
       "enabled": true
     },
     {
-      "_comment": "Приклад перевизначення формули для окремого товару (напр. інший метраж)",
-      "name": "Фланель Ведмедики, веселки гірчично-сірі",
       "supplierUrl": "https://cottonville.com.ua/ua/p2415740897-flanel-mishki-radugi.html",
-      "shopifySku": "",
-      "pricing": { "meters": 2 },
+      "variantName": "",
+      "shopifySku": "TF-686",
       "enabled": true
     }
   ]
