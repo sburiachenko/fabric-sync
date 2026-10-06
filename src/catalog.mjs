@@ -48,9 +48,11 @@ export const snapshot = ({ url, name, code, price, status, available, image, che
  * Структура товару для створення варіантів: опція тканини + інші опції з одним значенням.
  * Кидає помилку, якщо є опції з кількома значеннями.
  */
-export function variantContext(product, optionName) {
+export function variantContext(product, optionName, { swatches = false } = {}) {
   const fabricOption = product.options.find((o) => o.name === optionName);
-  if (fabricOption?.linkedMetafield) {
+  const lm = fabricOption?.linkedMetafield;
+  const linkedToSwatches = swatches && lm?.namespace === 'shopify' && lm?.key === 'color-pattern';
+  if (lm && !linkedToSwatches) {
     throw new Error(`Опція "${optionName}" прив'язана до метаполя категорії ` +
       `(${fabricOption.linkedMetafield.namespace}.${fabricOption.linkedMetafield.key}) — назви тканин у неї не записати, запусти create-variants`);
   }
@@ -63,6 +65,7 @@ export function variantContext(product, optionName) {
   return {
     optionName,
     fabricOption,
+    linked: linkedToSwatches,
     fixedOptionValues: otherOptions.map((o) => ({ optionName: o.name, name: o.optionValues[0].name })),
     existingSkus: new Set(product.variants.nodes.map((v) => v.sku).filter(Boolean)),
     existingNames: new Set(fabricOption?.optionValues.map((v) => v.name) || []),
@@ -82,14 +85,22 @@ export function planVariants(fabrics, ctx) {
     let name = e.item?.variantName || cleanName(e.name) || e.code;
     if (names.has(name)) name = `${name} (${e.code})`;
     names.add(name);
-    return { name, sku: e.code, available: e.available !== false, supplierPrice: e.price, image: bigImage(e.image) };
+    return {
+      name, sku: e.code, available: e.available !== false, supplierPrice: e.price, image: bigImage(e.image),
+      supplierName: e.name, item: e.item,
+    };
   });
 }
 
 /** Вхідні дані для productVariantsBulkCreate (+ медіа з фото постачальника) */
 export function variantInputs(plan, ctx, { withImages = true } = {}) {
   const variants = plan.map((t) => ({
-    optionValues: [{ optionName: ctx.optionName, name: t.name }, ...ctx.fixedOptionValues],
+    optionValues: [
+      t.metaobjectId
+        ? { optionName: ctx.optionName, linkedMetafieldValue: t.metaobjectId }
+        : { optionName: ctx.optionName, name: t.name },
+      ...ctx.fixedOptionValues,
+    ],
     price: ctx.basePrice,
     inventoryPolicy: t.available ? 'CONTINUE' : 'DENY',
     inventoryItem: { sku: t.sku, tracked: true },

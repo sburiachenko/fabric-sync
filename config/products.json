@@ -7,6 +7,8 @@
     "https://cottonville.com.ua/ua/g122415650-flanel-printami-shirina"
   ],
   "autoAddInStock": true,
+  "_comment_swatches": "swatches: true — кожна тканина = метаоб'єкт «Колір/візерунок» (shopify--color-pattern) з фото; тема Dawn показує їх як зразки. Колір/візерунок визначаються за назвою; перевизначити — swatchColors / swatchPattern у записі products.",
+  "swatches": true,
   "photos": {
     "_comment": "Налаштування Nano Banana Pro. prompt — загальна інструкція; у товарі можна додати photoPrompt (доповнення) і fabricImageUrl (своє фото тканини). baseImageUrl — якщо базове фото не головне фото товару.",
     "imageSize": "2K",

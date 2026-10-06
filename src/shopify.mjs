@@ -72,7 +72,7 @@ export async function createShopifyClient({ shop, clientId, clientSecret }) {
           product(id: $id) {
             id title handle status
             category { fullName }
-            options { id name position linkedMetafield { namespace key } optionValues { name } }
+            options { id name position linkedMetafield { namespace key } optionValues { id name linkedMetafieldValue } }
             featuredMedia { preview { image { url } } }
             variants(first: 100) { ${variantFields} }
           }
@@ -126,6 +126,75 @@ export async function createShopifyClient({ shop, clientId, clientSecret }) {
         { type },
       );
       return data.metaobjectDefinitionByType;
+    },
+
+    /** Атрибути категорії товару зі списком значень: [{ name, values: [{ id, name }] }] */
+    async getCategoryAttributes(productId) {
+      const data = await gql(
+        `query($id: ID!) {
+          product(id: $id) {
+            category {
+              fullName
+              attributes(first: 50) {
+                nodes { ... on TaxonomyChoiceListAttribute { id name values(first: 250) { nodes { id name } } } }
+              }
+            }
+          }
+        }`,
+        { id: toGid(productId) },
+      );
+      const cat = data.product?.category;
+      if (!cat) throw new Error('У товару не вибрано категорію (Product category) — вибери її в адмінці');
+      return cat.attributes.nodes.filter((a) => a.name).map((a) => ({ name: a.name, values: a.values.nodes }));
+    },
+
+    async getMetaobjectByHandle(type, handle) {
+      const data = await gql(
+        `query($h: MetaobjectHandleInput!) { metaobjectByHandle(handle: $h) { id handle displayName } }`,
+        { h: { type, handle } },
+      );
+      return data.metaobjectByHandle;
+    },
+
+    async createMetaobject(type, handle, fields) {
+      const data = await gql(
+        `mutation($m: MetaobjectCreateInput!) {
+          metaobjectCreate(metaobject: $m) {
+            metaobject { id handle displayName }
+            userErrors { field message }
+          }
+        }`,
+        { m: { type, handle, fields } },
+      );
+      return check(data.metaobjectCreate).metaobject;
+    },
+
+    /** Файл-зображення з URL (для полів file_reference) → id MediaImage */
+    async createFile(url, alt) {
+      const data = await gql(
+        `mutation($files: [FileCreateInput!]!) {
+          fileCreate(files: $files) {
+            files { id }
+            userErrors { field message }
+          }
+        }`,
+        { files: [{ originalSource: url, contentType: 'IMAGE', alt }] },
+      );
+      return check(data.fileCreate).files[0].id;
+    },
+
+    /** Прив'язати існуючу опцію до метаполя; valueLinks: [{ id (значення опції), linkedMetafieldValue (id метаоб'єкта) }] */
+    async linkOption(productId, optionId, namespace, key, valueLinks) {
+      const data = await gql(
+        `mutation($productId: ID!, $option: OptionUpdateInput!, $values: [OptionValueUpdateInput!]) {
+          productOptionUpdate(productId: $productId, option: $option, optionValuesToUpdate: $values, variantStrategy: LEAVE_AS_IS) {
+            product { id }
+            userErrors { field message }
+          }
+        }`,
+        { productId: toGid(productId), option: { id: optionId, linkedMetafield: { namespace, key } }, values: valueLinks },
+      );
+      return check(data.productOptionUpdate);
     },
 
     /** Видалити опції (лише з одним значенням — варіанти не зникають) */

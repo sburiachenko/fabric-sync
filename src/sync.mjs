@@ -14,6 +14,7 @@ import { createShopifyClient } from './shopify.mjs';
 import {
   loadCatalog, snapshot, variantContext, newFabrics, planVariants, createVariantsWithImages, cleanName,
 } from './catalog.mjs';
+import { loadSwatchTaxonomy, attachSwatches } from './swatches.mjs';
 
 const DRY_RUN = ['1', 'true'].includes(process.env.DRY_RUN);
 const SUPPLIER_ONLY = ['1', 'true'].includes(process.env.SUPPLIER_ONLY);
@@ -22,6 +23,7 @@ const CONFIG_FILE = new URL('../config/products.json', import.meta.url);
 
 const config = JSON.parse(await readFile(CONFIG_FILE, 'utf8'));
 const OPTION = config.optionName || 'Тканина';
+const SWATCHES = config.swatches === true;
 const prevState = await readFile(STATE_FILE, 'utf8').then(JSON.parse).catch(() => ({}));
 const newState = { ...prevState };
 const report = [];
@@ -119,12 +121,14 @@ async function syncShopify() {
   // 6. Нові тканини
   let plan = [];
   let ctx = null;
-  try { ctx = variantContext(product, OPTION); } catch (e) { alerts.push(`⚠️ Нові тканини не додано: ${e.message}`); }
+  try { ctx = variantContext(product, OPTION, { swatches: SWATCHES }); } catch (e) { alerts.push(`⚠️ Нові тканини не додано: ${e.message}`); }
   const fresh = ctx ? newFabrics(entries, ctx) : [];
   if (fresh.length && !ctx.fabricOption) {
     alerts.push(`⚠️ У товарі немає опції "${OPTION}" — нові тканини (${fresh.length}) не додано, запусти create-variants`);
   } else if (fresh.length && !config.autoAddInStock) {
     alerts.push(`🆕 Нових тканин: ${fresh.length} (${fresh.map((e) => e.code).join(', ')}) — запусти create-variants`);
+  } else if (fresh.length && SWATCHES && !ctx.linked) {
+    alerts.push(`⚠️ Опція "${OPTION}" ще не прив'язана до зразків — нові тканини (${fresh.length}) не додано, запусти create-variants`);
   } else if (fresh.length) {
     plan = planVariants(fresh, ctx);
     for (const t of plan) {
@@ -140,6 +144,10 @@ async function syncShopify() {
     await shopify.updateVariants(product.id, updates.slice(i, i + 100));
   }
   if (plan.length) {
+    if (SWATCHES) {
+      const taxonomy = await loadSwatchTaxonomy(shopify, product.id);
+      await attachSwatches(shopify, plan, taxonomy, { log: (s) => report.push(s) });
+    }
     const created = await createVariantsWithImages(shopify, product.id, plan, ctx, (s) => alerts.push(s));
     summary.push(`Створено варіантів: ${created}.`);
   }

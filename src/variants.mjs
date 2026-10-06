@@ -8,11 +8,13 @@
 import { readFile, appendFile } from 'node:fs/promises';
 import { createShopifyClient } from './shopify.mjs';
 import { loadCatalog, variantContext, newFabrics, planVariants, createVariantsWithImages } from './catalog.mjs';
+import { loadSwatchTaxonomy, linkFabricOption, attachSwatches, SWATCH_NAMESPACE, SWATCH_KEY } from './swatches.mjs';
 
 const MODE = process.env.MODE || 'inspect';
 const DRY_RUN = ['1', 'true'].includes(process.env.DRY_RUN);
 const config = JSON.parse(await readFile(new URL('../config/products.json', import.meta.url), 'utf8'));
 const OPTION = config.optionName || 'Тканина';
+const SWATCHES = config.swatches === true;
 const out = [];
 const log = (s = '') => { out.push(s); console.log(s); };
 
@@ -51,7 +53,9 @@ if (MODE === 'create') {
 
   // Опція, прив'язана до метаполя категорії (напр. стандартний "Колір"), приймає лише значення зі списку Shopify.
   // Замінюємо її звичайною опцією з тією ж назвою і тим самим значенням — існуючі варіанти не змінюються.
-  const linked = product.options.find((o) => o.name === OPTION && o.linkedMetafield);
+  // (зі swatches: true прив'язка до shopify.color-pattern — це якраз потрібний стан, її не чіпаємо)
+  const linked = product.options.find((o) => o.name === OPTION && o.linkedMetafield &&
+    !(SWATCHES && o.linkedMetafield.namespace === SWATCH_NAMESPACE && o.linkedMetafield.key === SWATCH_KEY));
   if (linked) {
     if (linked.optionValues.length !== 1) {
       throw new Error(`Опція "${OPTION}" прив'язана до метаполя категорії і має кілька значень — ` +
@@ -69,7 +73,7 @@ if (MODE === 'create') {
     }
   }
 
-  const ctx = variantContext(product, OPTION);
+  let ctx = variantContext(product, OPTION, { swatches: SWATCHES });
   // Варіанти без SKU — не з постачальника; з removeVariantsWithoutSku: true їх буде видалено
   const unmanaged = config.removeVariantsWithoutSku ? product.variants.nodes.filter((v) => !v.sku) : [];
 
@@ -79,6 +83,26 @@ if (MODE === 'create') {
   log(`Каталог: ${entries.length} тканин, у наявності ${entries.filter((e) => e.available).length}, ` +
     `уже в товарі ${entries.filter((e) => ctx.existingSkus.has(e.code)).length}`);
 
+  // 2. Зразки: прив'язати існуючу опцію тканин до метаоб'єктів "Колір/візерунок"
+  let taxonomy = null;
+  if (SWATCHES) {
+    if (!ctx.fabricOption) throw new Error(`Для зразків у товарі вже має бути опція "${OPTION}"`);
+    taxonomy = await loadSwatchTaxonomy(shopify, product.id);
+    if (DRY_RUN) {
+      log(`Таксономія: кольори — ${taxonomy.colors.map((v) => v.name).join(', ')}`);
+      log(`Таксономія: візерунки — ${taxonomy.patterns.map((v) => v.name).join(', ')}`);
+    }
+    if (!ctx.linked) {
+      log(`~ Прив'язка опції "${OPTION}" до зразків (метаполе shopify.color-pattern)${DRY_RUN ? ' — ПРОБНО' : ''}:`);
+      const n = await linkFabricOption(shopify, product, OPTION, entries, taxonomy, { dryRun: DRY_RUN, log });
+      if (!DRY_RUN) {
+        product = await shopify.getProduct(config.shopifyProductId);
+        ctx = variantContext(product, OPTION, { swatches: SWATCHES });
+        log(`✓ Опцію прив'язано, значень: ${n}`);
+      }
+    }
+  }
+
   const plan = planVariants(newFabrics(entries, ctx), ctx);
   for (const v of unmanaged) log(`- ${v.title} (без SKU) — буде видалено`);
   if (!plan.length) log('Нових варіантів немає.');
@@ -86,6 +110,7 @@ if (MODE === 'create') {
     log(`+ ${t.name} [${t.sku}] — ціна ${ctx.basePrice}, тканина ${t.supplierPrice ?? '?'} ₴/м, ` +
       `${t.available ? 'в продажу' : 'НЕМАЄ тканини → недоступний'}${t.image ? ', з фото' : ''}`);
   }
+  if (SWATCHES && plan.length) await attachSwatches(shopify, plan, taxonomy, { dryRun: DRY_RUN, log });
 
   if (!DRY_RUN && plan.length) {
     // 2. Якщо в товара ще немає опції — створюємо її; стандартний варіант ("Default Title") стає першою тканиною.
