@@ -1,0 +1,9 @@
+{
+  "_comment": "Постачальники. type — тип сайту (адаптер у src/suppliers.mjs; зараз: prom — будь-який магазин на Prom.ua). skuPrefix — префікс SKU в Shopify, щоб коди різних постачальників не збігались (для cottonville порожній — так історично). pauseMs — пауза між сторінками.",
+  "cottonville": {
+    "name": "COTTONville",
+    "type": "prom",
+    "skuPrefix": "",
+    "pauseMs": 2000
+  }
+}

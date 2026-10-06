@@ -1,40 +1,25 @@
 {
-  "shopifyProductId": "15400212365621",
-  "optionName": "Колір",
-  "removeVariantsWithoutSku": true,
-  "_comment_catalog": "supplierCategories — категорії постачальника: усі тканини в наявності стають варіантами. autoAddInStock: true — щоденний запуск сам створює варіанти для нових тканин (з фото постачальника); false — лише повідомляє.",
-  "supplierCategories": [
-    "https://cottonville.com.ua/ua/g122415650-flanel-printami-shirina"
+  "_comment": "Товари Shopify. Кожен: shopifyProductId; optionName — опція, значення якої = тканини; sources — категорії постачальників (усі тканини в наявності стають варіантами); fabrics — ручні записи (необов'язково): тканина поза категоріями, своя назва (variantName) чи SKU (shopifySku), enabled: false — виключити, swatchColors / swatchPattern — колір/візерунок зразка. autoAddInStock — щоденний запуск сам додає нові тканини; swatches — зразки «Колір/візерунок» для теми; removeVariantsWithoutSku — create-variants видаляє варіанти без SKU.",
+  "products": [
+    {
+      "key": "pelyushky",
+      "name": "Фланелеві пелюшки",
+      "shopifyProductId": "15400212365621",
+      "optionName": "Колір",
+      "swatches": true,
+      "autoAddInStock": true,
+      "removeVariantsWithoutSku": true,
+      "sources": [
+        { "supplier": "cottonville", "category": "https://cottonville.com.ua/ua/g122415650-flanel-printami-shirina" }
+      ],
+      "fabrics": []
+    }
   ],
-  "autoAddInStock": true,
-  "_comment_swatches": "swatches: true — кожна тканина = метаоб'єкт «Колір/візерунок» (shopify--color-pattern) з фото; тема Dawn показує їх як зразки. Колір/візерунок визначаються за назвою; перевизначити — swatchColors / swatchPattern у записі products.",
-  "swatches": true,
   "photos": {
-    "_comment": "Налаштування Nano Banana Pro. prompt — загальна інструкція; у товарі можна додати photoPrompt (доповнення) і fabricImageUrl (своє фото тканини). baseImageUrl — якщо базове фото не головне фото товару.",
+    "_comment": "Налаштування Nano Banana Pro (режими photos-prepare / photos-generate). prompt — загальна інструкція; у fabrics можна додати photoPrompt (доповнення) і fabricImageUrl (своє фото тканини). baseImageUrl — якщо базове фото не головне фото товару.",
     "imageSize": "2K",
     "aspectRatio": null,
     "baseImageUrl": null,
     "prompt": "Image 1 is a product photo. Image 2 is a fabric swatch. Recreate image 1 exactly, but make the product sewn from the fabric in image 2. Keep the same shape, cut, seams, folds, pose, camera angle, lighting, shadows and background. Transfer the print faithfully: same motifs, same colors, realistic pattern scale for a sewn item, pattern following the folds and seams naturally. Do not add text, logos or extra objects."
-  },
-  "_comment": "products — ручні записи (необов'язково): тканина поза категоріями, своя назва (variantName) чи SKU (shopifySku; порожньо — код постачальника), або enabled: false — виключити тканину з категорії.",
-  "products": [
-    {
-      "supplierUrl": "https://cottonville.com.ua/ua/p1736171204-flanel-rozhdestvenskie-oleni.html",
-      "variantName": "",
-      "shopifySku": "WF-110",
-      "enabled": true
-    },
-    {
-      "supplierUrl": "https://cottonville.com.ua/ua/p2800137091-flanel-elochki-oleni.html",
-      "variantName": "",
-      "shopifySku": "TF-854",
-      "enabled": true
-    },
-    {
-      "supplierUrl": "https://cottonville.com.ua/ua/p2415740897-flanel-mishki-radugi.html",
-      "variantName": "",
-      "shopifySku": "TF-686",
-      "enabled": true
-    }
-  ]
+  }
 }

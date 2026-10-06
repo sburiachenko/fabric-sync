@@ -11,15 +11,19 @@ on:
         type: choice
         default: dry-run
         options:
-          - supplier-only            # лише перевірити сайт постачальника
-          - inspect                  # показати товар і варіанти в Shopify
+          - supplier-only            # лише перевірити сайти постачальників
+          - inspect                  # показати товари і варіанти в Shopify
           - create-variants-dry-run  # показати, які варіанти буде створено
-          - create-variants          # створити варіанти тканин у товарі
+          - create-variants          # створити варіанти тканин у товарах
           - dry-run                  # синхронізація наявності — пробно
           - live                     # синхронізація наявності — реально
           - photos-supplier          # взяти фото тканин з сайту постачальника → photos/
           - photos-upload            # завантажити фото в Shopify і прив'язати до варіантів
           # (вимкнено поки що) photos-prepare / photos-generate — генерація Nano Banana, див. src/photos.mjs
+      product:
+        description: 'Товар (key з config/products.json; порожньо = всі; для photos-* обов''язково, якщо товарів кілька)'
+        type: string
+        required: false
       only:
         description: 'Лише ці SKU через кому (порожньо = всі)'
         type: string
@@ -36,6 +40,8 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    env:
+      PRODUCT: ${{ inputs.product }}
     steps:
       - uses: actions/checkout@v4
 

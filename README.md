@@ -1,49 +1,54 @@
 # fabric-sync
 
-Щоденна синхронізація тканин постачальника (cottonville.com.ua) з магазином Shopify:
-ціна тканини → ціна виробу за формулою, наявність тканини → можна/не можна купити виріб.
+Щоденна синхронізація тканин постачальників з магазином Shopify:
+наявність тканини → можна/не можна купити виріб; нові тканини → нові варіанти з фото і зразком.
 
 ## Як працює
 
-Один товар у Shopify (`shopifyProductId`), кожна тканина — його **варіант** (опція `optionName`, напр. «Колір»; SKU = код постачальника).
+Кожен товар у Shopify (пелюшки, плед, …) — запис у `config/products.json`; кожна тканина — його **варіант**
+(опція `optionName`, напр. «Колір»; SKU = префікс постачальника + код постачальника).
 **Ціну виробу задаєш ти** — скрипт її не змінює.
 
-Щодня о 07:00 (Київ) GitHub Actions:
-1. читає категорії постачальника з `supplierCategories` (усі сторінки) — **код, ціну, наявність, фото** кожної тканини;
-2. тканина є → варіант можна купити; тканини немає (або вона зникла з категорії) → варіант «Немає в наявності»;
-3. нова тканина в наявності → створює варіант з фото постачальника (`autoAddInStock: true`);
+Щодня о 07:00 (Київ) GitHub Actions для кожного товару:
+1. читає категорії постачальників із `sources` (усі сторінки; спільна категорія читається один раз на всі товари) — **код, ціну, наявність, фото**;
+2. тканина є → варіант можна купити; тканини немає (або вона зникла з категорії) → «Немає в наявності»;
+3. нова тканина в наявності → створює варіант з фото й зразком (`autoAddInStock: true`);
 4. якщо постачальник змінив ціну чи код — пише про це у звіті (Summary + Telegram);
-5. зберігає знімок у `data/state.json`.
+5. зберігає знімок у `data/state.json` (там же `_skuUrl` — до якої сторінки прив'язаний кожен SKU, бо в постачальника бувають однакові коди на різних тканинах).
 
 ## Режими (Actions → Fabric sync → Run workflow)
 
+Поле `product` — key товару (порожньо = усі), `only` — лише ці SKU.
+
 | Режим | Що робить |
 |---|---|
-| `supplier-only` | лише читає сайт постачальника |
-| `inspect` | показує товар: опції, варіанти, SKU, ціни |
-| `create-variants-dry-run` | показує, які варіанти буде створено |
-| `create-variants` | створює варіанти для тканин у наявності, яких ще немає (з фото; повторно не дублює); з `removeVariantsWithoutSku` — видаляє варіанти без SKU |
+| `supplier-only` | лише читає сайти постачальників |
+| `inspect` | показує товари: опції, варіанти, SKU, ціни, фото |
+| `create-variants-dry-run` | показує, які варіанти і зразки буде створено |
+| `create-variants` | створює варіанти для тканин у наявності, яких ще немає (з фото і зразком; повторно не дублює); з `removeVariantsWithoutSku` — видаляє варіанти без SKU |
 | `dry-run` | синхронізація наявності — пробно |
 | `live` | синхронізація наявності — реально (за розкладом працює саме цей) |
-| `photos-supplier` | бере фото тканин із сайту постачальника → папка `photos/<SKU>.jpg` (у Shopify нічого не змінює) |
-| `photos-upload` | завантажує фото з `photos/` у Shopify і прив'язує до варіантів |
+| `photos-supplier` | бере фото тканин із сайту постачальника → `photos/<key>/<SKU>.jpg` (у Shopify нічого не змінює) |
+| `photos-upload` | завантажує фото з `photos/<key>/` у Shopify і прив'язує до варіантів |
 
-Нові тканини з категорії додаються самі. Тканина поза категорією: додай запис у `products` → push → `create-variants`.
-Замінити фото варіанта своїм: поклади `photos/<SKU>.jpg` → push → `photos-upload`.
+Нові тканини з категорій додаються самі. Тканина поза категорією: запис у `fabrics` товару → push → `create-variants`.
+Замінити фото варіанта своїм: поклади `photos/<key>/<SKU>.jpg` → push → `photos-upload`.
+
+### Зразки тканин (тема Dawn)
+З `swatches: true` кожна тканина — метаоб'єкт «Колір/візерунок» (`shopify--color-pattern`) з фото тканини,
+базовим кольором і візерунком (визначаються за назвою; перевизначити — `swatchColors` / `swatchPattern` у `fabrics`).
+Опція тканин прив'язана до метаполя `shopify.color-pattern`. У Dawn: Customize → сторінка товару → Variant picker → Swatch.
+Один метаоб'єкт на тканину — спільний для всіх товарів.
 
 ### Фото (Nano Banana Pro) — поки вимкнено в меню workflow
 Режими `photos-prepare` / `photos-generate` є в `src/photos.mjs`; щоб увімкнути — додай їх в `options` у `.github/workflows/sync.yml`.
-- Вхід: головне фото товару в Shopify + фото тканини з сайту постачальника.
-- Результат: `photos/<SKU>.png` у репозиторії — переглянь на GitHub.
-- Не сподобалось → видали файл (`git rm photos/WF-110.png`, push) → `photos-generate` з полем `only: WF-110`.
-- Промпт і розмір — у блоці `photos` конфігу; для окремої тканини можна додати `photoPrompt`.
-- Потрібен секрет `GEMINI_API_KEY` (Google AI Studio, платний тариф).
+Промпт і розмір — у блоці `photos` конфігу; потрібен секрет `GEMINI_API_KEY`.
 
 ## Налаштування
 
 ### 1. Shopify
-- Застосунок у Dev Dashboard зі scopes: `read_products, write_products, read_inventory, write_inventory, read_locations`, встановлений у магазин.
-- Варіанти створює режим `create-variants` (SKU, облік кількості, наявність — автоматично).
+Застосунок у Dev Dashboard, встановлений у магазин, зі scopes:
+`read_products, write_products, read_inventory, write_inventory, read_locations, read_metaobjects, write_metaobjects, read_metaobject_definitions, write_files`.
 
 ### 2. GitHub Secrets
 Repo → Settings → Secrets and variables → Actions → New repository secret:
@@ -53,24 +58,36 @@ Repo → Settings → Secrets and variables → Actions → New repository secre
 | `SHOPIFY_SHOP` | `твій-магазин.myshopify.com` |
 | `SHOPIFY_CLIENT_ID` | Client ID з Dev Dashboard |
 | `SHOPIFY_CLIENT_SECRET` | Client Secret з Dev Dashboard |
-| `GEMINI_API_KEY` | ключ Google AI Studio (для фото) |
+| `GEMINI_API_KEY` | *(для генерації фото)* ключ Google AI Studio |
 | `TELEGRAM_BOT_TOKEN` | *(необов'язково)* токен бота від @BotFather |
 | `TELEGRAM_CHAT_ID` | *(необов'язково)* твій chat id |
 
-### 3. Конфіг `config/products.json`
+### 3. Постачальники — `config/suppliers.json`
+```json
+"cottonville": { "type": "prom", "skuPrefix": "", "pauseMs": 2000 }
+```
+- `type` — тип сайту (адаптер у `src/suppliers.mjs`): `prom` — будь-який магазин на Prom.ua.
+- `skuPrefix` — префікс SKU, щоб коди різних постачальників не збігались (напр. `"S2-"`).
+
+### 4. Товари — `config/products.json`
+```json
+{
+  "key": "pelyushky", "name": "Фланелеві пелюшки", "shopifyProductId": "15400212365621",
+  "optionName": "Колір", "swatches": true, "autoAddInStock": true,
+  "sources": [{ "supplier": "cottonville", "category": "https://…/g122415650-flanel-printami-shirina" }],
+  "fabrics": [{ "supplierUrl": "https://…", "variantName": "", "shopifySku": "", "enabled": false }]
+}
+```
 - `shopifyProductId` — ID товару (з адреси в адмінці: `/products/<ID>`).
-- `optionName` — опція товару, значення якої = тканини (зараз «Колір»; інші опції, напр. «Розмір», мають мати одне значення).
-- `supplierCategories` — посилання на категорії постачальника; `autoAddInStock` — автоматично додавати нові тканини.
-- `products[]` — ручні записи (необов'язково): `supplierUrl`, `variantName` (своя назва), `shopifySku`, `enabled: false` — виключити тканину.
+- `optionName` — опція, значення якої = тканини; інші опції (напр. «Розмір») мають мати одне значення.
+- `fabrics` — ручні записи (необов'язково): тканина поза категорією, своя назва/SKU, `enabled: false` — виключити.
 
-## Перший запуск (рекомендований порядок)
-
-Actions → **Fabric sync** → **Run workflow** → режим:
-1. `inspect` → 2. `create-variants-dry-run` → 3. `create-variants` → 4. `dry-run` → далі працює за розкладом.
+Новий товар: створи його в Shopify (з опціями, напр. «Колір» з одним значенням і «Розмір»), додай запис → push →
+`create-variants-dry-run` (product: key) → `create-variants`.
 
 ## Локально (необов'язково)
 
 ```bash
-npm run check                         # лише постачальник
-SHOPIFY_SHOP=... SHOPIFY_CLIENT_ID=... SHOPIFY_CLIENT_SECRET=... npm run dry
+SUPPLIER_ONLY=1 DRY_RUN=1 node src/sync.mjs                 # лише постачальники
+SHOPIFY_SHOP=... SHOPIFY_CLIENT_ID=... SHOPIFY_CLIENT_SECRET=... DRY_RUN=1 node src/sync.mjs
 ```

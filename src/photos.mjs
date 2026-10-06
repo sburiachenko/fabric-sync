@@ -10,19 +10,28 @@
 //   MODE=upload   — завантажує фото з photos/ у Shopify і прив'язує до варіантів
 //                   (лише нові або змінені файли).
 //   ONLY=WF-110,TF-854 — обмежити список SKU (необов'язково)
+//   PRODUCT=key        — товар з config/products.json (обов'язково, якщо товарів кілька)
+// Фото — у photos/<key товару>/<SKU>.*; тканини — варіанти товару, знайдені в каталозі постачальників.
 
 import { readFile, writeFile, readdir, mkdir, appendFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
-import { fetchSupplierProduct } from './supplier.mjs';
 import { createShopifyClient } from './shopify.mjs';
+import { loadConfig, selectProducts } from './config.mjs';
+import { createSupplierCache } from './suppliers.mjs';
+import { loadCatalog, bigImage } from './catalog.mjs';
 
 const MODE = process.env.MODE || 'generate';
 const ONLY = (process.env.ONLY || '').split(',').map((s) => s.trim()).filter(Boolean);
 const MODEL = 'gemini-3-pro-image-preview';
-const PHOTOS_DIR = new URL('../photos/', import.meta.url);
 const UPLOADED_FILE = new URL('../data/photos-uploaded.json', import.meta.url);
 
-const config = JSON.parse(await readFile(new URL('../config/products.json', import.meta.url), 'utf8'));
+const config = await loadConfig();
+const selected = selectProducts(config.products);
+if (selected.length !== 1) {
+  throw new Error(`Фото — для одного товару: вкажи product (${config.products.map((p) => p.key).join(', ')})`);
+}
+const P = selected[0];
+const PHOTOS_DIR = new URL(`../photos/${P.key}/`, import.meta.url);
 const photoCfg = {
   prompt:
     'Image 1 is a product photo. Image 2 is a fabric swatch. ' +
@@ -43,14 +52,29 @@ const shopify = await createShopifyClient({
   clientId: required('SHOPIFY_CLIENT_ID'),
   clientSecret: required('SHOPIFY_CLIENT_SECRET'),
 });
-const product = await shopify.getProduct(config.shopifyProductId);
+const product = await shopify.getProduct(P.shopifyProductId);
 const variantsBySku = new Map(product.variants.nodes.filter((v) => v.sku).map((v) => [v.sku, v]));
 
 await mkdir(PHOTOS_DIR, { recursive: true });
 const existingFiles = await readdir(PHOTOS_DIR);
 const fileFor = (sku) => existingFiles.find((f) => f.replace(/\.[^.]+$/, '') === safe(sku));
 
-let items = config.products.filter((p) => p.enabled !== false);
+// Тканини, які вже є варіантами товару: { sku, name, fabricUrl, fallbackUrl, extra }
+let items = [];
+if (MODE !== 'upload') {
+  const state = await readFile(new URL('../data/state.json', import.meta.url), 'utf8').then(JSON.parse).catch(() => ({}));
+  const { entries, errors } = await loadCatalog(P, createSupplierCache(config.suppliers), { skuUrl: state._skuUrl });
+  for (const e of errors) log(`❌ ${e}`);
+  items = entries
+    .filter((e) => variantsBySku.has(e.code) && (!ONLY.length || ONLY.includes(e.code)))
+    .map((e) => ({
+      sku: e.code,
+      name: variantsBySku.get(e.code).title,
+      fabricUrl: e.item?.fabricImageUrl || bigImage(e.image),
+      fallbackUrl: e.image,
+      extra: e.item?.photoPrompt,
+    }));
+}
 let failures = 0;
 
 if (MODE === 'prepare') {
@@ -64,18 +88,13 @@ if (MODE === 'prepare') {
   log(`✓ 00-base-product — головне фото товару`);
 
   const todo = [];
-  for (const item of items) {
-    const s = await fetchSupplierProduct(item.supplierUrl);
-    const sku = item.shopifySku || s.code;
-    if (ONLY.length && !ONLY.includes(sku)) continue;
-    const name = item.variantName || s.name;
-    if (fileFor(sku)) { log(`• ${name} [${sku}] — фото вже є в photos/, пропускаю`); continue; }
-    const fabricUrl = item.fabricImageUrl || bigPromImage(s.image);
+  for (const { sku, name, fabricUrl, fallbackUrl, extra } of items) {
+    if (fileFor(sku)) { log(`• ${name} [${sku}] — фото вже є в photos/${P.key}/, пропускаю`); continue; }
     if (!fabricUrl) { log(`⚠️ ${name} [${sku}] — не знайдено фото тканини`); continue; }
     try {
-      const fabric = await download(fabricUrl).catch(() => download(s.image));
+      const fabric = await download(fabricUrl).catch(() => download(fallbackUrl));
       await writeFile(new URL(`${safe(sku)}-fabric.${extOf(fabric.mimeType)}`, dir), fabric.buffer);
-      todo.push({ sku, name, extra: item.photoPrompt });
+      todo.push({ sku, name, extra });
       log(`✓ ${safe(sku)}-fabric — ${name}`);
     } catch (e) { failures++; log(`❌ ${name} [${sku}]: ${e.message}`); }
   }
@@ -86,16 +105,16 @@ if (MODE === 'prepare') {
     '1. Для кожної тканини завантаж 2 зображення в такому порядку:',
     '   перше — 00-base-product, друге — <SKU>-fabric.',
     '2. Встав промпт нижче (+ доповнення для тканини, якщо є).',
-    '3. Найкращий результат збережи в папку photos/ репозиторію з назвою <SKU>.png',
-    '   (напр. photos/WF-110.png) — назва файлу = SKU, це важливо!',
+    `3. Найкращий результат збережи в папку photos/${P.key}/ репозиторію з назвою <SKU>.png`,
+    `   (напр. photos/${P.key}/WF-110.png) — назва файлу = SKU, це важливо!`,
     '4. git add photos && git commit -m "photos" && git push',
-    '5. Actions → Fabric sync → photos-upload',
+    `5. Actions → Fabric sync → photos-upload (product: ${P.key})`,
     '',
     'ПРОМПТ:',
     photoCfg.prompt,
     '',
     'ТКАНИНИ:',
-    ...todo.map((t) => `  ${t.sku}  →  photos/${safe(t.sku)}.png   (${t.name})${t.extra ? `\n     доповнення до промпту: ${t.extra}` : ''}`),
+    ...todo.map((t) => `  ${t.sku}  →  photos/${P.key}/${safe(t.sku)}.png   (${t.name})${t.extra ? `\n     доповнення до промпту: ${t.extra}` : ''}`),
   ].join('\n');
   await writeFile(new URL('ІНСТРУКЦІЯ.txt', dir), readme);
   log('');
@@ -104,28 +123,23 @@ if (MODE === 'prepare') {
 
 if (MODE === 'supplier') {
   // Без генерації: фото тканини з сайту постачальника → photos/<SKU>.* (для перевірки перед upload)
-  for (const item of items) {
+  for (const { sku, name, fabricUrl, fallbackUrl } of items) {
     try {
-      const s = await fetchSupplierProduct(item.supplierUrl);
-      const sku = item.shopifySku || s.code;
-      if (ONLY.length && !ONLY.includes(sku)) continue;
-      const name = item.variantName || s.name;
-      if (fileFor(sku)) { log(`• ${name} [${sku}] — фото вже є (photos/${fileFor(sku)}), пропускаю`); continue; }
-      const fabricUrl = item.fabricImageUrl || bigPromImage(s.image);
+      if (fileFor(sku)) { log(`• ${name} [${sku}] — фото вже є (photos/${P.key}/${fileFor(sku)}), пропускаю`); continue; }
       if (!fabricUrl) { log(`⚠️ ${name} [${sku}] — не знайдено фото тканини, вкажи fabricImageUrl у конфігу`); failures++; continue; }
-      const img = await download(fabricUrl).catch(() => download(s.image));
+      const img = await download(fabricUrl).catch(() => download(fallbackUrl));
       const file = `${safe(sku)}.${extOf(img.mimeType)}`;
       await writeFile(new URL(file, PHOTOS_DIR), img.buffer);
       existingFiles.push(file);
-      log(`✓ ${name} [${sku}] → photos/${file} (${Math.round(img.buffer.length / 1024)} КБ)`);
+      log(`✓ ${name} [${sku}] → photos/${P.key}/${file} (${Math.round(img.buffer.length / 1024)} КБ)`);
     } catch (e) {
       failures++;
-      log(`❌ ${item.shopifySku || item.supplierUrl}: ${e.message}`);
+      log(`❌ ${name} [${sku}]: ${e.message}`);
     }
     await new Promise((r) => setTimeout(r, 1000));
   }
   log('');
-  log('Переглянь фото в папці photos/ репозиторію. Невдале — заміни файл своїм або видали. Усі ок — запусти photos-upload.');
+  log(`Переглянь фото в папці photos/${P.key}/ репозиторію. Невдале — заміни файл своїм або видали. Усі ок — запусти photos-upload.`);
 }
 
 if (MODE === 'generate') {
@@ -135,44 +149,37 @@ if (MODE === 'generate') {
   log(`Базове фото товару: ${baseUrl}`);
   const base = await download(baseUrl);
 
-  for (const item of items) {
-    const s = await fetchSupplierProduct(item.supplierUrl);
-    const sku = item.shopifySku || s.code;
-    if (ONLY.length && !ONLY.includes(sku)) continue;
-    const name = item.variantName || s.name;
-    if (fileFor(sku)) { log(`• ${name} [${sku}] — фото вже є (photos/${fileFor(sku)}), пропускаю`); continue; }
-
-    const fabricUrl = item.fabricImageUrl || bigPromImage(s.image);
+  for (const { sku, name, fabricUrl, fallbackUrl, extra } of items) {
+    if (fileFor(sku)) { log(`• ${name} [${sku}] — фото вже є (photos/${P.key}/${fileFor(sku)}), пропускаю`); continue; }
     if (!fabricUrl) { log(`⚠️ ${name} [${sku}] — не знайдено фото тканини, вкажи fabricImageUrl у конфігу`); failures++; continue; }
 
     try {
-      const fabric = await download(fabricUrl).catch(() => download(s.image));
-      const prompt = [photoCfg.prompt, item.photoPrompt].filter(Boolean).join(' ');
+      const fabric = await download(fabricUrl).catch(() => download(fallbackUrl));
+      const prompt = [photoCfg.prompt, extra].filter(Boolean).join(' ');
       const img = await generate(apiKey, prompt, [base, fabric]);
       const ext = img.mimeType.includes('png') ? 'png' : img.mimeType.includes('webp') ? 'webp' : 'jpg';
       const file = `${safe(sku)}.${ext}`;
       await writeFile(new URL(file, PHOTOS_DIR), img.buffer);
       existingFiles.push(file);
-      log(`✓ ${name} [${sku}] → photos/${file} (${(img.buffer.length / 1024 / 1024).toFixed(1)} МБ)`);
+      log(`✓ ${name} [${sku}] → photos/${P.key}/${file} (${(img.buffer.length / 1024 / 1024).toFixed(1)} МБ)`);
     } catch (e) {
       failures++;
       log(`❌ ${name} [${sku}]: ${e.message}`);
     }
   }
   log('');
-  log('Переглянь фото в папці photos/ репозиторію. Невдале — видали файл і запусти photos-generate знову. Усі ок — запусти photos-upload.');
+  log(`Переглянь фото в папці photos/${P.key}/ репозиторію. Невдале — видали файл і запусти photos-generate знову. Усі ок — запусти photos-upload.`);
 }
 
 if (MODE === 'upload') {
-  const uploaded = await readFile(UPLOADED_FILE, 'utf8').then(JSON.parse).catch(() => ({}));
-  for (const item of items) {
-    const sku = item.shopifySku;
-    if (!sku) { log(`⚠️ ${item.supplierUrl}: у конфігу немає shopifySku`); continue; }
+  // { "<key товару>": { "<SKU>": { file, hash, mediaId, uploadedAt } } }
+  const uploadedAll = await readFile(UPLOADED_FILE, 'utf8').then(JSON.parse).catch(() => ({}));
+  const uploaded = (uploadedAll[P.key] ||= {});
+  for (const file of existingFiles) {
+    const sku = [...variantsBySku.keys()].find((s) => safe(s) === file.replace(/\.[^.]+$/, ''));
+    if (!sku) { log(`⚠️ photos/${P.key}/${file} — у товарі немає варіанта з таким SKU`); continue; }
     if (ONLY.length && !ONLY.includes(sku)) continue;
-    const file = fileFor(sku);
-    if (!file) { log(`• [${sku}] — немає фото, пропускаю`); continue; }
     const variant = variantsBySku.get(sku);
-    if (!variant) { log(`⚠️ [${sku}] — у товарі немає такого варіанта`); continue; }
 
     const buffer = await readFile(new URL(file, PHOTOS_DIR));
     const hash = createHash('sha1').update(buffer).digest('hex').slice(0, 10);
@@ -186,7 +193,7 @@ if (MODE === 'upload') {
         buffer, filename: `${product.handle}-${safe(sku)}.${ext}`, mimeType, alt,
       });
       uploaded[sku] = { file, hash, mediaId, uploadedAt: new Date().toISOString() };
-      await writeFile(UPLOADED_FILE, JSON.stringify(uploaded, null, 2) + '\n');
+      await writeFile(UPLOADED_FILE, JSON.stringify(uploadedAll, null, 2) + '\n');
       log(`✓ ${variant.title} [${sku}] — фото завантажено й прив'язано до варіанта`);
     } catch (e) {
       failures++;
@@ -243,12 +250,6 @@ async function download(url) {
   if (!res.ok) throw new Error(`Завантаження ${url}: HTTP ${res.status}`);
   const mimeType = (res.headers.get('content-type') || 'image/jpeg').split(';')[0];
   return { buffer: Buffer.from(await res.arrayBuffer()), mimeType };
-}
-
-// Prom.ua віддає картинки у різних розмірах: ..._w640_h640_... → беремо найбільший
-function bigPromImage(url) {
-  if (!url) return null;
-  return url.replace(/_w\d+_h\d+_/, '_w1280_h1280_');
 }
 
 function extOf(mime) { return mime.includes('png') ? 'png' : mime.includes('webp') ? 'webp' : 'jpg'; }

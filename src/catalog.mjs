@@ -1,35 +1,41 @@
-// Каталог тканин: категорії постачальника (supplierCategories) + окремі товари з config.products.
-// config.products — ручні записи: тканина поза категорією, своя назва/SKU, або enabled: false — виключити.
-
-import { fetchSupplierCategory, fetchSupplierProduct } from './supplier.mjs';
+// Каталог тканин одного товару: категорії постачальників (sources) + ручні записи (fabrics).
+// fabrics — тканина поза категорією, своя назва/SKU, або enabled: false — виключити.
+// SKU = префікс постачальника (skuPrefix) + код постачальника; shopifySku у fabrics — точне значення.
 
 /**
+ * product — запис з config (loadConfig), suppliers — createSupplierCache(...).
  * Повертає { entries, complete, errors, duplicates }.
- * entries: [{ url, name, code, price, status, available, image, manual, item }]
- * complete — усі категорії прочитано без помилок (можна вважати, що тканини, яких немає, зникли з каталогу).
+ * entries: [{ url, name, code, supplierCode, supplier, price, status, available, image, manual, item }]
+ * complete — усі джерела прочитано без помилок (можна вважати, що тканини, яких немає, зникли з каталогу).
  */
-export async function loadCatalog(config, { skuUrl = {} } = {}) {
+export async function loadCatalog(product, suppliers, { skuUrl = {} } = {}) {
   const errors = [];
   const byUrl = new Map();
   let complete = true;
+  const withCode = (t, supplier, item = null) => ({
+    ...t,
+    supplier,
+    supplierCode: t.code,
+    code: item?.shopifySku || (t.code ? `${suppliers.supplier(supplier)?.skuPrefix || ''}${t.code}` : null),
+    manual: !!item,
+    item,
+  });
 
-  for (const cat of config.supplierCategories || []) {
+  for (const src of product.sources) {
     try {
-      for (const t of await fetchSupplierCategory(cat)) byUrl.set(t.url, { ...t, manual: false, item: null });
+      for (const t of await suppliers.category(src.supplier, src.category)) byUrl.set(t.url, withCode(t, src.supplier));
     } catch (e) {
       complete = false;
-      errors.push(`категорія ${cat}: ${e.message}`);
+      errors.push(`${src.supplier}: категорія ${src.category}: ${e.message}`);
     }
   }
 
-  for (const item of config.products || []) {
+  for (const item of product.fabrics) {
     const known = byUrl.get(item.supplierUrl);
     if (item.enabled === false) { byUrl.delete(item.supplierUrl); continue; }
-    if (known) { byUrl.set(item.supplierUrl, { ...known, manual: true, item }); continue; }
     try {
-      const s = await fetchSupplierProduct(item.supplierUrl);
-      byUrl.set(item.supplierUrl, { ...s, manual: true, item });
-      await sleep(1000);
+      const s = known || await suppliers.product(item.supplier, item.supplierUrl);
+      byUrl.set(item.supplierUrl, withCode(s, item.supplier, item));
     } catch (e) {
       complete = false;
       errors.push(`${item.variantName || item.shopifySku || item.supplierUrl}: ${e.message}`);
@@ -39,7 +45,7 @@ export async function loadCatalog(config, { skuUrl = {} } = {}) {
   // Один код — одна тканина. У постачальника буває однаковий код на різних тканинах
   // (напр. TF-204: "Пандочки блакитні" і "Пандочки рожеві") — інакше наявність однієї керувала б варіантом іншої.
   // Пріоритет: сторінка, до якої код уже прив'язаний (skuUrl) → ручний запис → у наявності → перша.
-  const all = [...byUrl.values()].map((e) => ({ ...e, code: e.item?.shopifySku || e.code }));
+  const all = [...byUrl.values()];
   const rank = (e) => (skuUrl[e.code] === e.url ? 0 : e.manual ? 1 : e.available ? 2 : 3);
   const byCode = new Map();
   const duplicates = [];
@@ -59,8 +65,8 @@ export async function loadCatalog(config, { skuUrl = {} } = {}) {
 export const skuUrlMap = (entries) => Object.fromEntries(entries.filter((e) => e.code).map((e) => [e.code, e.url]));
 
 /** Знімок для data/state.json */
-export const snapshot = ({ url, name, code, price, status, available, image, checkedAt }) =>
-  ({ url, name, code, price, status, available, image, checkedAt });
+export const snapshot = ({ url, supplier, name, code, price, status, available, image, checkedAt }) =>
+  ({ url, supplier, name, code, price, status, available, image, checkedAt });
 
 /**
  * Структура товару для створення варіантів: опція тканини + інші опції з одним значенням.
@@ -163,5 +169,3 @@ export function cleanName(name) {
 export function bigImage(url) {
   return url ? url.replace(/_w\d+_h\d+_/, '_w1280_h1280_') : null;
 }
-
-function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
