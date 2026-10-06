@@ -32,17 +32,20 @@ const COLOR_WORDS = [
 const PATTERN_WORDS = [
   [/клітин|клітк|картат/i, ['Checkered', 'Plaid', 'Gingham', 'Tartan']],
   [/смуж|смуг/i, ['Striped', 'Stripes']],
-  [/горох|горош|крапк/i, ['Polka dot', 'Dotted', 'Dots']],
+  [/горох|горош|крапк/i, ['Dots', 'Polka dot']],
   [/зір|зірк/i, ['Stars', 'Star']],
   [/сердеч|серц/i, ['Hearts', 'Heart']],
   [/сніжин|різдв|ялин|санта|сніговик|олен|новоріч/i, ['Christmas', 'Holiday', 'Seasonal', 'Winter']],
   [/квіт|троянд|тюльпан|мак|букет|ромаш|лаванд/i, ['Floral', 'Flowers', 'Botanical']],
   [/гілоч|листоч|листя|лист|гінкго|пальм|евкаліпт|хвойн/i, ['Leaves', 'Botanical', 'Floral', 'Nature']],
-  [/ведмед|мишк|коал|панд|динозавр|котик|кот|лис|зайч|пташ|звір|лам|єдиноріг|єдинорог|олень/i, ['Animals', 'Animal', 'Character', 'Cartoon']],
-  [/орнамент|геометр|ромб|трикутн/i, ['Geometric', 'Ornamental', 'Abstract']],
-  [/веселк|хмаринк|кактус|лимон|вишен|машинк|вертоліт|ракет/i, ['Novelty', 'Character', 'Cartoon', 'Printed']],
+  [/ведмед|мишк|коал|панд|динозавр|котик|кот|лис|зайч|звір|лам|єдиноріг|єдинорог|олень/i, ['Animal', 'Animals', 'Characters']],
+  [/пташ|птах|пташк|сов/i, ['Birds', 'Animal']],
+  [/веселк|райдуж/i, ['Rainbow']],
+  [/машинк|вертоліт|ракет|літак|автомоб/i, ['Vehicle']],
+  [/орнамент|геометр|ромб|трикутн/i, ['Geometric', 'Ethnic', 'Abstract']],
+  [/хмаринк|кактус|лимон|вишен|фрукт/i, ['Organic', 'Abstract']],
 ];
-const PATTERN_FALLBACK = ['Printed', 'Print', 'Novelty', 'Mixed', 'Abstract', 'Other'];
+const PATTERN_FALLBACK = ['Random', 'Abstract', 'Other'];
 
 const COLOR_HEX = {
   Gray: '#9E9E9E', Beige: '#E8DCC4', White: '#FFFFFF', Black: '#222222', Pink: '#F4B6C2', Blue: '#7FB3E0',

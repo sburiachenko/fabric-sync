@@ -82,6 +82,11 @@ if (MODE === 'create') {
   for (const e of errors) log(`❌ ${e}`);
   log(`Каталог: ${entries.length} тканин, у наявності ${entries.filter((e) => e.available).length}, ` +
     `уже в товарі ${entries.filter((e) => ctx.existingSkus.has(e.code)).length}`);
+  if (errors.length) {
+    // неповний каталог → зразки без фото, пропущені тканини; краще нічого не змінювати
+    if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, '```\n' + out.join('\n') + '\n```\n');
+    throw new Error('Каталог постачальника прочитано з помилками — нічого не змінюю, запусти пізніше');
+  }
 
   // 2. Зразки: прив'язати існуючу опцію тканин до метаоб'єктів "Колір/візерунок"
   let taxonomy = null;

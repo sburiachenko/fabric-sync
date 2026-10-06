@@ -55,7 +55,7 @@ export function parseSupplierHtml(html, url = '') {
 
 // ---------- Категорія (список товарів з усіма сторінками) ----------
 
-export async function fetchSupplierCategory(url, { maxPages = 50, pause = 1000 } = {}) {
+export async function fetchSupplierCategory(url, { maxPages = 50, pause = 2000 } = {}) {
   const base = url.replace(/\/page_\d+\/?$/, '').replace(/\/$/, '');
   const all = new Map();
   for (let page = 1; page <= maxPages; page++) {
@@ -90,15 +90,25 @@ export function parseCategoryHtml(html, pageUrl = 'https://cottonville.com.ua/')
   }).filter(Boolean);
 }
 
+// Сайт обмежує частоту запитів (HTTP 429) — чекаємо й повторюємо
+const RETRY_DELAYS = [10, 30, 60, 120];
+
 async function fetchHtml(url) {
-  const res = await fetch(url, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128 Safari/537.36',
-      'Accept-Language': 'uk-UA,uk;q=0.9',
-    },
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status} для ${url}`);
-  return res.text();
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128 Safari/537.36',
+        'Accept-Language': 'uk-UA,uk;q=0.9',
+      },
+    });
+    if (res.ok) return res.text();
+    const retryable = res.status === 429 || res.status >= 500;
+    if (!retryable || attempt >= RETRY_DELAYS.length) throw new Error(`HTTP ${res.status} для ${url}`);
+    const retryAfter = Number(res.headers.get('retry-after'));
+    const wait = Math.min(Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : RETRY_DELAYS[attempt], 180);
+    console.error(`HTTP ${res.status} для ${url} — повтор через ${wait} с`);
+    await new Promise((r) => setTimeout(r, wait * 1000));
+  }
 }
 
 // ---------- helpers ----------
