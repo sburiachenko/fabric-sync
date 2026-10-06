@@ -11,9 +11,19 @@ on:
         type: choice
         default: dry-run
         options:
-          - supplier-only   # лише перевірити парсинг сайту постачальника
-          - dry-run         # показати, що зміниться в Shopify, без змін
-          - live            # реальне оновлення
+          - supplier-only            # лише перевірити сайт постачальника
+          - inspect                  # показати товар і варіанти в Shopify
+          - create-variants-dry-run  # показати, які варіанти буде створено
+          - create-variants          # створити варіанти тканин у товарі
+          - dry-run                  # синхронізація наявності — пробно
+          - live                     # синхронізація наявності — реально
+          - photos-supplier          # взяти фото тканин з сайту постачальника → photos/
+          - photos-upload            # завантажити фото в Shopify і прив'язати до варіантів
+          # (вимкнено поки що) photos-prepare / photos-generate — генерація Nano Banana, див. src/photos.mjs
+      only:
+        description: 'Лише ці SKU через кому (порожньо = всі)'
+        type: string
+        required: false
 
 permissions:
   contents: write   # щоб зберегти data/state.json (історію цін)
@@ -25,7 +35,7 @@ concurrency:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
@@ -43,14 +53,47 @@ jobs:
           # За розкладом — реальна синхронізація; вручну — обраний режим
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'dry-run' && '1' || '0' }}
           SUPPLIER_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'supplier-only' && '1' || '0' }}
+        if: ${{ github.event_name == 'schedule' || !(contains(fromJSON('["inspect","create-variants-dry-run","create-variants"]'), inputs.mode) || startsWith(inputs.mode, 'photos-')) }}
         run: node src/sync.mjs
 
-      - name: Save state
+      - name: Variants
+        if: ${{ github.event_name == 'workflow_dispatch' && contains(fromJSON('["inspect","create-variants-dry-run","create-variants"]'), inputs.mode) }}
+        env:
+          SHOPIFY_SHOP: ${{ secrets.SHOPIFY_SHOP }}
+          SHOPIFY_CLIENT_ID: ${{ secrets.SHOPIFY_CLIENT_ID }}
+          SHOPIFY_CLIENT_SECRET: ${{ secrets.SHOPIFY_CLIENT_SECRET }}
+          MODE: ${{ inputs.mode == 'inspect' && 'inspect' || 'create' }}
+          DRY_RUN: ${{ inputs.mode == 'create-variants-dry-run' && '1' || '0' }}
+        run: node src/variants.mjs
+
+      - name: Photos
+        if: ${{ github.event_name == 'workflow_dispatch' && startsWith(inputs.mode, 'photos-') }}
+        timeout-minutes: 30
+        env:
+          SHOPIFY_SHOP: ${{ secrets.SHOPIFY_SHOP }}
+          SHOPIFY_CLIENT_ID: ${{ secrets.SHOPIFY_CLIENT_ID }}
+          SHOPIFY_CLIENT_SECRET: ${{ secrets.SHOPIFY_CLIENT_SECRET }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          MODE: ${{ inputs.mode == 'photos-upload' && 'upload' || inputs.mode == 'photos-supplier' && 'supplier' || inputs.mode == 'photos-prepare' && 'prepare' || 'generate' }}
+          ONLY: ${{ inputs.only }}
+        run: node src/photos.mjs
+
+      - name: Download pack for Google Flow
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'photos-prepare' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: photos-prepare
+          path: prepare/
+          retention-days: 7
+
+      - name: Save state & photos
+        if: ${{ always() }}
         run: |
-          if [ -n "$(git status --porcelain data/)" ]; then
+          if [ -n "$(git status --porcelain data/ photos/ 2>/dev/null)" ]; then
             git config user.name "fabric-sync-bot"
             git config user.email "actions@users.noreply.github.com"
-            git add data/state.json
-            git commit -m "chore: supplier state $(date -u +%F)"
+            git add data/ photos/ 2>/dev/null || git add data/
+            git commit -m "chore: sync ${{ inputs.mode || 'schedule' }} $(date -u +%F)"
+            git pull --rebase
             git push
           fi

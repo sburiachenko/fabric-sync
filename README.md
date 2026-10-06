@@ -24,8 +24,18 @@
 | `create-variants` | створює варіанти для нових тканин з конфігу (повторно не дублює) |
 | `dry-run` | синхронізація наявності — пробно |
 | `live` | синхронізація наявності — реально (за розкладом працює саме цей) |
+| `photos-supplier` | бере фото тканин із сайту постачальника → папка `photos/<SKU>.jpg` (у Shopify нічого не змінює) |
+| `photos-upload` | завантажує фото з `photos/` у Shopify і прив'язує до варіантів |
 
-Нова тканина: додай запис у `products` → push → `create-variants`.
+Нова тканина: додай запис у `products` → push → `create-variants` → `photos-supplier` → переглянь `photos/` → `photos-upload`.
+
+### Фото (Nano Banana Pro) — поки вимкнено в меню workflow
+Режими `photos-prepare` / `photos-generate` є в `src/photos.mjs`; щоб увімкнути — додай їх в `options` у `.github/workflows/sync.yml`.
+- Вхід: головне фото товару в Shopify + фото тканини з сайту постачальника.
+- Результат: `photos/<SKU>.png` у репозиторії — переглянь на GitHub.
+- Не сподобалось → видали файл (`git rm photos/WF-110.png`, push) → `photos-generate` з полем `only: WF-110`.
+- Промпт і розмір — у блоці `photos` конфігу; для окремої тканини можна додати `photoPrompt`.
+- Потрібен секрет `GEMINI_API_KEY` (Google AI Studio, платний тариф).
 
 ## Налаштування
 
@@ -41,6 +51,7 @@ Repo → Settings → Secrets and variables → Actions → New repository secre
 | `SHOPIFY_SHOP` | `твій-магазин.myshopify.com` |
 | `SHOPIFY_CLIENT_ID` | Client ID з Dev Dashboard |
 | `SHOPIFY_CLIENT_SECRET` | Client Secret з Dev Dashboard |
+| `GEMINI_API_KEY` | ключ Google AI Studio (для фото) |
 | `TELEGRAM_BOT_TOKEN` | *(необов'язково)* токен бота від @BotFather |
 | `TELEGRAM_CHAT_ID` | *(необов'язково)* твій chat id |
 

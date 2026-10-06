@@ -55,8 +55,10 @@ export function parseSupplierHtml(html, url = '') {
   }
 
   const name = ld?.name || metaContent(html, 'og:title') || null;
+  const ldImage = [].concat(ld?.image || [])[0];
+  const image = (typeof ldImage === 'object' ? ldImage?.url : ldImage) || metaContent(html, 'og:image') || null;
 
-  return { url, name, code, price, status, available, checkedAt: new Date().toISOString() };
+  return { url, name, code, price, status, available, image, checkedAt: new Date().toISOString() };
 }
 
 // ---------- helpers ----------

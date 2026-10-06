@@ -1,6 +1,13 @@
 {
   "shopifyProductId": "15400212365621",
   "optionName": "Тканина",
+  "photos": {
+    "_comment": "Налаштування Nano Banana Pro. prompt — загальна інструкція; у товарі можна додати photoPrompt (доповнення) і fabricImageUrl (своє фото тканини). baseImageUrl — якщо базове фото не головне фото товару.",
+    "imageSize": "2K",
+    "aspectRatio": null,
+    "baseImageUrl": null,
+    "prompt": "Image 1 is a product photo. Image 2 is a fabric swatch. Recreate image 1 exactly, but make the product sewn from the fabric in image 2. Keep the same shape, cut, seams, folds, pose, camera angle, lighting, shadows and background. Transfer the print faithfully: same motifs, same colors, realistic pattern scale for a sewn item, pattern following the folds and seams naturally. Do not add text, logos or extra objects."
+  },
   "_comment": "variantName — назва варіанта для покупця (якщо порожньо, береться з назви тканини постачальника). shopifySku заповнюється автоматично кодом постачальника.",
   "products": [
     {

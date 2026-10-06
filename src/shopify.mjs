@@ -48,8 +48,12 @@ export async function createShopifyClient({ shop, clientId, clientSecret }) {
           product(id: $id) {
             id title handle status
             options { id name optionValues { name } }
+            featuredMedia { preview { image { url } } }
             variants(first: 100) {
-              nodes { id title sku price inventoryPolicy inventoryItem { tracked } selectedOptions { name value } }
+              nodes {
+                id title sku price inventoryPolicy inventoryItem { tracked } selectedOptions { name value }
+                media(first: 5) { nodes { id } }
+              }
             }
           }
         }`,
@@ -99,6 +103,77 @@ export async function createShopifyClient({ shop, clientId, clientSecret }) {
         { productId: toGid(productId), variants },
       );
       return check(data.productVariantsBulkUpdate).productVariants;
+    },
+
+    /**
+     * Завантажити зображення в товар і прив'язати до варіанта.
+     * buffer — вміст файлу, alt — підпис (має бути унікальним у товарі).
+     */
+    async uploadVariantImage(productId, variant, { buffer, filename, mimeType, alt }) {
+      productId = toGid(productId);
+
+      // 1) тимчасове місце для завантаження
+      const st = await gql(
+        `mutation($input: [StagedUploadInput!]!) {
+          stagedUploadsCreate(input: $input) {
+            stagedTargets { url resourceUrl parameters { name value } }
+            userErrors { field message }
+          }
+        }`,
+        { input: [{ resource: 'IMAGE', filename, mimeType, httpMethod: 'POST', fileSize: String(buffer.length) }] },
+      );
+      const target = check(st.stagedUploadsCreate).stagedTargets[0];
+      const form = new FormData();
+      for (const p of target.parameters) form.append(p.name, p.value);
+      form.append('file', new Blob([buffer], { type: mimeType }), filename);
+      const up = await fetch(target.url, { method: 'POST', body: form });
+      if (!up.ok) throw new Error(`Завантаження файлу: HTTP ${up.status} ${await up.text()}`);
+
+      // 2) додати як медіа товару
+      const pu = await gql(
+        `mutation($product: ProductUpdateInput!, $media: [CreateMediaInput!]) {
+          productUpdate(product: $product, media: $media) {
+            product { id }
+            userErrors { field message }
+          }
+        }`,
+        { product: { id: productId }, media: [{ originalSource: target.resourceUrl, alt, mediaContentType: 'IMAGE' }] },
+      );
+      check(pu.productUpdate);
+
+      // 3) дочекатися обробки
+      let media = null;
+      for (let i = 0; i < 30; i++) {
+        const d = await gql(
+          `query($id: ID!) { product(id: $id) { media(last: 50) { nodes { id alt status } } } }`,
+          { id: productId },
+        );
+        media = d.product.media.nodes.filter((m) => m.alt === alt).pop();
+        if (media?.status === 'READY') break;
+        if (media?.status === 'FAILED') throw new Error('Shopify не зміг обробити зображення');
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+      if (media?.status !== 'READY') throw new Error('Зображення не оброблено за 60 с');
+
+      // 4) відв'язати старе фото варіанта (якщо було) і прив'язати нове
+      const old = variant.media?.nodes?.map((m) => m.id) || [];
+      if (old.length) {
+        const dt = await gql(
+          `mutation($productId: ID!, $vm: [ProductVariantDetachMediaInput!]!) {
+            productVariantDetachMedia(productId: $productId, variantMedia: $vm) { userErrors { field message } }
+          }`,
+          { productId, vm: [{ variantId: variant.id, mediaIds: old }] },
+        );
+        check(dt.productVariantDetachMedia);
+      }
+      const ap = await gql(
+        `mutation($productId: ID!, $vm: [ProductVariantAppendMediaInput!]!) {
+          productVariantAppendMedia(productId: $productId, variantMedia: $vm) { userErrors { field message } }
+        }`,
+        { productId, vm: [{ variantId: variant.id, mediaIds: [media.id] }] },
+      );
+      check(ap.productVariantAppendMedia);
+      return media.id;
     },
 
     /** Знайти варіант за SKU */
