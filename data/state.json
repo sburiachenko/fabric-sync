@@ -6,7 +6,8 @@
     "price": 266,
     "status": "InStock",
     "available": true,
-    "checkedAt": "2026-10-05T18:02:22.711Z"
+    "image": "https://images.prom.ua/6941404838_w500_h500_flanel-rizdvyani-oleni.jpg",
+    "checkedAt": "2026-10-06T10:59:19.265Z"
   },
   "https://cottonville.com.ua/ua/p2800137091-flanel-elochki-oleni.html": {
     "url": "https://cottonville.com.ua/ua/p2800137091-flanel-elochki-oleni.html",
@@ -15,7 +16,8 @@
     "price": 169.4,
     "status": "InStock",
     "available": true,
-    "checkedAt": "2026-10-05T18:02:24.963Z"
+    "image": "https://images.prom.ua/6901516369_w500_h500_flanel-yalinki-oleni.jpg",
+    "checkedAt": "2026-10-06T10:59:21.201Z"
   },
   "https://cottonville.com.ua/ua/p2415740897-flanel-mishki-radugi.html": {
     "url": "https://cottonville.com.ua/ua/p2415740897-flanel-mishki-radugi.html",
@@ -24,6 +26,7 @@
     "price": 242,
     "status": "InStock",
     "available": true,
-    "checkedAt": "2026-10-05T18:02:26.238Z"
+    "image": "https://images.prom.ua/6381778902_w500_h500_flanel-vedmediki-veselki.jpg",
+    "checkedAt": "2026-10-06T10:59:22.217Z"
   }
 }
