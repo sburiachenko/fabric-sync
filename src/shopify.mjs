@@ -71,6 +71,7 @@ export async function createShopifyClient({ shop, clientId, clientSecret }) {
         `query($id: ID!) {
           product(id: $id) {
             id title handle status
+            category { fullName }
             options { id name position linkedMetafield { namespace key } optionValues { name } }
             featuredMedia { preview { image { url } } }
             variants(first: 100) { ${variantFields} }
@@ -110,6 +111,21 @@ export async function createShopifyClient({ shop, clientId, clientSecret }) {
         { productId: toGid(productId), options: [option] },
       );
       return check(data.productOptionsCreate);
+    },
+
+    /** Опис типу метаоб'єкта (напр. shopify--color-pattern) з полями і кількома записами */
+    async getMetaobjectDefinition(type) {
+      const data = await gql(
+        `query($type: String!) {
+          metaobjectDefinitionByType(type: $type) {
+            id name type metaobjectsCount
+            fieldDefinitions { key name required type { name } }
+            metaobjects(first: 3) { nodes { id handle displayName fields { key value } } }
+          }
+        }`,
+        { type },
+      );
+      return data.metaobjectDefinitionByType;
     },
 
     /** Видалити опції (лише з одним значенням — варіанти не зникають) */

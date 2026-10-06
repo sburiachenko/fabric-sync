@@ -25,6 +25,26 @@ const shopify = await createShopifyClient({
 let product = await shopify.getProduct(config.shopifyProductId);
 printProduct(product);
 
+if (MODE === 'inspect') {
+  // Метаоб'єкти "Колір/візерунок" — для зразків тканин у темі
+  log('');
+  try {
+    const def = await shopify.getMetaobjectDefinition('shopify--color-pattern');
+    if (!def) {
+      log('Метаоб\'єкт shopify--color-pattern: не знайдено (категорія товару без атрибута "Колір/візерунок"?)');
+    } else {
+      log(`Метаоб'єкт ${def.type} "${def.name}": записів ${def.metaobjectsCount}`);
+      for (const f of def.fieldDefinitions) log(`  поле ${f.key} (${f.type.name})${f.required ? ' — обов\'язкове' : ''} — ${f.name}`);
+      for (const m of def.metaobjects.nodes) {
+        log(`  приклад: ${m.displayName} | ${m.fields.map((f) => `${f.key}=${(f.value || '').slice(0, 60)}`).join('; ')}`);
+      }
+    }
+  } catch (e) {
+    log(`Метаоб'єкти недоступні: ${e.message.slice(0, 300)}`);
+    log('→ додай застосунку scopes read_metaobjects, write_metaobjects, read_metaobject_definitions, write_files і перевстанови');
+  }
+}
+
 if (MODE === 'create') {
   log('');
   log(`=== Створення варіантів${DRY_RUN ? ' (ПРОБНО, без змін)' : ''} ===`);
@@ -112,7 +132,7 @@ if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SU
 // ---------- helpers ----------
 
 function printProduct(p) {
-  log(`Товар: ${p.title} (${p.status}) — /products/${p.handle}`);
+  log(`Товар: ${p.title} (${p.status}) — /products/${p.handle}${p.category ? ` — категорія: ${p.category.fullName}` : ''}`);
   log(`Опції: ${p.options.map((o) => `${o.name} [${o.optionValues.map((v) => v.name).join(', ')}]`).join('; ')}`);
   log(`Варіанти (${p.variants.nodes.length}):`);
   for (const v of p.variants.nodes) {
