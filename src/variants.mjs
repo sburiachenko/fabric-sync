@@ -78,8 +78,13 @@ if (MODE === 'create') {
   const unmanaged = config.removeVariantsWithoutSku ? product.variants.nodes.filter((v) => !v.sku) : [];
 
   // 1. Каталог постачальника
-  const { entries, errors } = await loadCatalog(config);
+  const state = await readFile(new URL('../data/state.json', import.meta.url), 'utf8').then(JSON.parse).catch(() => ({}));
+  const { entries, errors, duplicates } = await loadCatalog(config, { skuUrl: state._skuUrl });
   for (const e of errors) log(`❌ ${e}`);
+  for (const d of duplicates) {
+    log(`⚠️ Код ${d.code} у постачальника на двох тканинах — беру "${d.kept.name}"${d.kept.available ? '' : ' (немає)'}, ` +
+      `пропускаю "${d.dropped.name}"${d.dropped.available ? '' : ' (немає)'}`);
+  }
   log(`Каталог: ${entries.length} тканин, у наявності ${entries.filter((e) => e.available).length}, ` +
     `уже в товарі ${entries.filter((e) => ctx.existingSkus.has(e.code)).length}`);
   if (errors.length) {

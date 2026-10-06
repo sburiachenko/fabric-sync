@@ -4,11 +4,11 @@
 import { fetchSupplierCategory, fetchSupplierProduct } from './supplier.mjs';
 
 /**
- * Повертає { entries, complete, errors }.
+ * Повертає { entries, complete, errors, duplicates }.
  * entries: [{ url, name, code, price, status, available, image, manual, item }]
  * complete — усі категорії прочитано без помилок (можна вважати, що тканини, яких немає, зникли з каталогу).
  */
-export async function loadCatalog(config) {
+export async function loadCatalog(config, { skuUrl = {} } = {}) {
   const errors = [];
   const byUrl = new Map();
   let complete = true;
@@ -36,9 +36,27 @@ export async function loadCatalog(config) {
     }
   }
 
-  const entries = [...byUrl.values()].map((e) => ({ ...e, code: e.item?.shopifySku || e.code }));
-  return { entries, complete, errors };
+  // Один код — одна тканина. У постачальника буває однаковий код на різних тканинах
+  // (напр. TF-204: "Пандочки блакитні" і "Пандочки рожеві") — інакше наявність однієї керувала б варіантом іншої.
+  // Пріоритет: сторінка, до якої код уже прив'язаний (skuUrl) → ручний запис → у наявності → перша.
+  const all = [...byUrl.values()].map((e) => ({ ...e, code: e.item?.shopifySku || e.code }));
+  const rank = (e) => (skuUrl[e.code] === e.url ? 0 : e.manual ? 1 : e.available ? 2 : 3);
+  const byCode = new Map();
+  const duplicates = [];
+  for (const e of all) {
+    if (!e.code) continue;
+    const prev = byCode.get(e.code);
+    if (!prev) { byCode.set(e.code, e); continue; }
+    const [keep, drop] = rank(e) < rank(prev) ? [e, prev] : [prev, e];
+    byCode.set(e.code, keep);
+    duplicates.push({ code: e.code, kept: keep, dropped: drop });
+  }
+  const entries = [...byCode.values(), ...all.filter((e) => !e.code)];
+  return { entries, complete, errors, duplicates };
 }
+
+/** Прив'язка код → сторінка для наступних запусків (зберігається в data/state.json як _skuUrl) */
+export const skuUrlMap = (entries) => Object.fromEntries(entries.filter((e) => e.code).map((e) => [e.code, e.url]));
 
 /** Знімок для data/state.json */
 export const snapshot = ({ url, name, code, price, status, available, image, checkedAt }) =>

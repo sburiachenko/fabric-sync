@@ -12,7 +12,7 @@
 import { readFile, writeFile, appendFile } from 'node:fs/promises';
 import { createShopifyClient } from './shopify.mjs';
 import {
-  loadCatalog, snapshot, variantContext, newFabrics, planVariants, createVariantsWithImages, cleanName,
+  loadCatalog, snapshot, skuUrlMap, variantContext, newFabrics, planVariants, createVariantsWithImages, cleanName,
 } from './catalog.mjs';
 import { loadSwatchTaxonomy, attachSwatches } from './swatches.mjs';
 
@@ -35,9 +35,10 @@ const label = (e) => e.item?.variantName || cleanName(e.name) || e.code || e.url
 const line = (e) => `${label(e)} [${e.code ?? '?'}]: ${e.price ?? '?'} ₴/м, ${e.available ? 'є' : e.available === false ? 'НЕМАЄ' : '?'}`;
 
 // ---------- 1. Каталог постачальника ----------
-const { entries, complete, errors: catalogErrors } = await loadCatalog(config);
+const { entries, complete, errors: catalogErrors } = await loadCatalog(config, { skuUrl: prevState._skuUrl });
 for (const e of catalogErrors) alerts.push(`❌ ${e}`);
 if (!entries.length) failed = true;
+newState._skuUrl = { ...prevState._skuUrl, ...skuUrlMap(entries) };
 
 // ---------- 2. Товар у Shopify ----------
 let shopify = null;
