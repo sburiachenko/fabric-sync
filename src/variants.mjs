@@ -31,11 +31,16 @@ if (MODE === 'create') {
   const existingSkus = new Set(product.variants.nodes.map((v) => v.sku).filter(Boolean));
   const fabricOption = product.options.find((o) => o.name === OPTION);
   const existingNames = new Set(fabricOption?.optionValues.map((v) => v.name) || []);
+  // Інші опції (напр. "Розмір") допускаються лише з одним значенням — його отримає кожен новий варіант
   const otherOptions = product.options.filter((o) => o.name !== OPTION && o.name !== 'Title');
-  if (otherOptions.length) {
-    throw new Error(`У товарі є інші опції (${otherOptions.map((o) => o.name).join(', ')}). ` +
-      `Автоматично створювати комбінації не буду — напиши, як мають поєднуватися тканини з цими опціями.`);
+  const multi = otherOptions.filter((o) => o.optionValues.length !== 1);
+  if (multi.length) {
+    throw new Error(`Опції з кількома значеннями (${multi.map((o) => o.name).join(', ')}) — ` +
+      `автоматично створювати комбінації не буду, напиши, як мають поєднуватися тканини з цими опціями.`);
   }
+  const fixedOptionValues = otherOptions.map((o) => ({ optionName: o.name, name: o.optionValues[0].name }));
+  // Варіанти без SKU — не з постачальника; з removeVariantsWithoutSku: true їх буде видалено
+  const unmanaged = config.removeVariantsWithoutSku ? product.variants.nodes.filter((v) => !v.sku) : [];
 
   // 1. Зібрати дані з сайту постачальника
   const todo = [];
@@ -50,6 +55,8 @@ if (MODE === 'create') {
     existingNames.add(name);
     await sleep(1000);
   }
+
+  for (const v of unmanaged) log(`- ${v.title} (без SKU) — буде видалено`);
 
   if (!todo.length) {
     log('Нових варіантів немає.');
@@ -81,15 +88,32 @@ if (MODE === 'create') {
       if (todo.length) {
         const created = await shopify.createVariants(
           product.id,
-          todo.map((t) => ({ optionValues: [{ optionName: OPTION, name: t.name }], price: basePrice, ...toInput(t) })),
+          todo.map((t) => ({
+            optionValues: [{ optionName: OPTION, name: t.name }, ...fixedOptionValues],
+            price: basePrice,
+            ...toInput(t),
+          })),
         );
         log(`✓ Створено варіантів: ${created.length}`);
       }
-
-      product = await shopify.getProduct(config.shopifyProductId);
-      log('');
-      printProduct(product);
     }
+  }
+
+  // 4. Видалити варіанти без SKU — лише якщо в товарі лишаються варіанти тканин
+  if (unmanaged.length && !DRY_RUN) {
+    const fresh = await shopify.getProduct(config.shopifyProductId);
+    if (fresh.variants.nodes.some((v) => v.sku)) {
+      await shopify.deleteVariants(product.id, unmanaged.map((v) => v.id));
+      log(`✓ Видалено варіантів без SKU: ${unmanaged.map((v) => v.title).join(', ')}`);
+    } else {
+      log('⚠️ Варіанти без SKU не видалено — у товарі ще немає варіантів тканин');
+    }
+  }
+
+  if (!DRY_RUN && (todo.length || unmanaged.length)) {
+    product = await shopify.getProduct(config.shopifyProductId);
+    log('');
+    printProduct(product);
   }
 }
 

@@ -109,6 +109,20 @@ export async function createShopifyClient({ shop, clientId, clientSecret }) {
       return check(data.productVariantsBulkCreate).productVariants;
     },
 
+    /** Видалити варіанти */
+    async deleteVariants(productId, variantIds) {
+      const data = await gql(
+        `mutation($productId: ID!, $variantsIds: [ID!]!) {
+          productVariantsBulkDelete(productId: $productId, variantsIds: $variantsIds) {
+            product { id }
+            userErrors { field message }
+          }
+        }`,
+        { productId: toGid(productId), variantsIds: variantIds },
+      );
+      return check(data.productVariantsBulkDelete);
+    },
+
     /** Довільне оновлення варіантів пачкою */
     async updateVariants(productId, variants) {
       const data = await gql(
