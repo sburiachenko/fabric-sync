@@ -50,6 +50,10 @@ export const snapshot = ({ url, name, code, price, status, available, image, che
  */
 export function variantContext(product, optionName) {
   const fabricOption = product.options.find((o) => o.name === optionName);
+  if (fabricOption?.linkedMetafield) {
+    throw new Error(`Опція "${optionName}" прив'язана до метаполя категорії ` +
+      `(${fabricOption.linkedMetafield.namespace}.${fabricOption.linkedMetafield.key}) — назви тканин у неї не записати, запусти create-variants`);
+  }
   const otherOptions = product.options.filter((o) => o.name !== optionName && o.name !== 'Title');
   const multi = otherOptions.filter((o) => o.optionValues.length !== 1);
   if (multi.length) {

@@ -71,7 +71,7 @@ export async function createShopifyClient({ shop, clientId, clientSecret }) {
         `query($id: ID!) {
           product(id: $id) {
             id title handle status
-            options { id name optionValues { name } }
+            options { id name position linkedMetafield { namespace key } optionValues { name } }
             featuredMedia { preview { image { url } } }
             variants(first: 100) { ${variantFields} }
           }
@@ -98,7 +98,8 @@ export async function createShopifyClient({ shop, clientId, clientSecret }) {
     },
 
     /** Додати опцію (напр. "Тканина") з першим значенням. Стандартний варіант отримає це значення. */
-    async createOption(productId, name, firstValue) {
+    async createOption(productId, name, firstValue, position) {
+      const option = { name, values: [{ name: firstValue }], ...(position ? { position } : {}) };
       const data = await gql(
         `mutation($productId: ID!, $options: [OptionCreateInput!]!) {
           productOptionsCreate(productId: $productId, options: $options, variantStrategy: LEAVE_AS_IS) {
@@ -106,9 +107,23 @@ export async function createShopifyClient({ shop, clientId, clientSecret }) {
             userErrors { field message }
           }
         }`,
-        { productId: toGid(productId), options: [{ name, values: [{ name: firstValue }] }] },
+        { productId: toGid(productId), options: [option] },
       );
       return check(data.productOptionsCreate);
+    },
+
+    /** Видалити опції (лише з одним значенням — варіанти не зникають) */
+    async deleteOptions(productId, optionIds) {
+      const data = await gql(
+        `mutation($productId: ID!, $options: [ID!]!) {
+          productOptionsDelete(productId: $productId, options: $options) {
+            deletedOptionsIds
+            userErrors { field message }
+          }
+        }`,
+        { productId: toGid(productId), options: optionIds },
+      );
+      return check(data.productOptionsDelete);
     },
 
     /** Створити варіанти пачкою; media — нові зображення товару (варіант посилається через mediaSrc) */

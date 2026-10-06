@@ -29,6 +29,26 @@ if (MODE === 'create') {
   log('');
   log(`=== Створення варіантів${DRY_RUN ? ' (ПРОБНО, без змін)' : ''} ===`);
 
+  // Опція, прив'язана до метаполя категорії (напр. стандартний "Колір"), приймає лише значення зі списку Shopify.
+  // Замінюємо її звичайною опцією з тією ж назвою і тим самим значенням — існуючі варіанти не змінюються.
+  const linked = product.options.find((o) => o.name === OPTION && o.linkedMetafield);
+  if (linked) {
+    if (linked.optionValues.length !== 1) {
+      throw new Error(`Опція "${OPTION}" прив'язана до метаполя категорії і має кілька значень — ` +
+        `заміни її вручну в адмінці на звичайну опцію (без прив'язки) і запусти знову.`);
+    }
+    const value = linked.optionValues[0].name;
+    log(`~ Опція "${OPTION}" прив'язана до метаполя категорії — ${DRY_RUN ? 'буде замінена' : 'замінюю'} звичайною опцією "${OPTION}" [${value}]`);
+    if (DRY_RUN) {
+      product = { ...product, options: product.options.map((o) => (o === linked ? { ...o, linkedMetafield: null } : o)) };
+    } else {
+      await shopify.deleteOptions(product.id, [linked.id]);
+      await shopify.createOption(product.id, OPTION, value, linked.position);
+      product = await shopify.getProduct(config.shopifyProductId);
+      log(`✓ Опцію "${OPTION}" замінено: ${product.options.map((o) => `${o.name} [${o.optionValues.map((v) => v.name).join(', ')}]`).join('; ')}`);
+    }
+  }
+
   const ctx = variantContext(product, OPTION);
   // Варіанти без SKU — не з постачальника; з removeVariantsWithoutSku: true їх буде видалено
   const unmanaged = config.removeVariantsWithoutSku ? product.variants.nodes.filter((v) => !v.sku) : [];
