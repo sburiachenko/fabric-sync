@@ -5,22 +5,40 @@ export const toGid = (id) => (String(id).startsWith('gid://') ? String(id) : `gi
 
 const API_VERSION = '2026-07';
 
+// Приймає "назва", "назва.myshopify.com", "https://назва.myshopify.com/", "admin.shopify.com/store/назва"
+function normalizeShop(shop) {
+  const s = shop.trim().replace(/^https?:\/\//, '').replace(/\/+$/, '');
+  const admin = s.match(/^admin\.shopify\.com\/store\/([^/]+)/);
+  if (admin) return `${admin[1]}.myshopify.com`;
+  const host = s.split('/')[0];
+  return host.includes('.') ? host : `${host}.myshopify.com`;
+}
+
 export async function createShopifyClient({ shop, clientId, clientSecret }) {
-  const domain = shop.replace(/^https?:\/\//, '').replace(/\/$/, '');
+  const domain = normalizeShop(shop);
 
   const tokenRes = await fetch(`https://${domain}/admin/oauth/access_token`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
     body: new URLSearchParams({
       grant_type: 'client_credentials',
-      client_id: clientId,
-      client_secret: clientSecret,
+      client_id: clientId.trim(),
+      client_secret: clientSecret.trim(),
     }),
+    redirect: 'manual',
   });
-  if (!tokenRes.ok) {
-    throw new Error(`Не вдалося отримати токен Shopify: HTTP ${tokenRes.status} ${await tokenRes.text()}`);
+  const tokenBody = await tokenRes.text();
+  let token = null;
+  try { token = JSON.parse(tokenBody).access_token; } catch { /* не JSON */ }
+  if (!tokenRes.ok || !token) {
+    const hint = tokenRes.status >= 300 && tokenRes.status < 400
+      ? `редірект на ${tokenRes.headers.get('location')} — SHOPIFY_SHOP має бути адресою виду назва.myshopify.com`
+      : tokenRes.status === 400 || tokenRes.status === 401
+        ? 'перевір SHOPIFY_CLIENT_ID / SHOPIFY_CLIENT_SECRET і що застосунок встановлено в магазин'
+        : 'перевір SHOPIFY_SHOP (назва.myshopify.com)';
+    throw new Error(`Не вдалося отримати токен Shopify (${domain}): HTTP ${tokenRes.status} — ${hint}. ` +
+      `Відповідь: ${tokenBody.replace(/\s+/g, ' ').slice(0, 200)}`);
   }
-  const { access_token: token } = await tokenRes.json();
 
   async function gql(query, variables = {}) {
     const res = await fetch(`https://${domain}/admin/api/${API_VERSION}/graphql.json`, {
