@@ -2,6 +2,11 @@
   "shopifyProductId": "15400212365621",
   "optionName": "Колір",
   "removeVariantsWithoutSku": true,
+  "_comment_catalog": "supplierCategories — категорії постачальника: усі тканини в наявності стають варіантами. autoAddInStock: true — щоденний запуск сам створює варіанти для нових тканин (з фото постачальника); false — лише повідомляє.",
+  "supplierCategories": [
+    "https://cottonville.com.ua/ua/g122415650-flanel-printami-shirina"
+  ],
+  "autoAddInStock": true,
   "photos": {
     "_comment": "Налаштування Nano Banana Pro. prompt — загальна інструкція; у товарі можна додати photoPrompt (доповнення) і fabricImageUrl (своє фото тканини). baseImageUrl — якщо базове фото не головне фото товару.",
     "imageSize": "2K",
@@ -9,7 +14,7 @@
     "baseImageUrl": null,
     "prompt": "Image 1 is a product photo. Image 2 is a fabric swatch. Recreate image 1 exactly, but make the product sewn from the fabric in image 2. Keep the same shape, cut, seams, folds, pose, camera angle, lighting, shadows and background. Transfer the print faithfully: same motifs, same colors, realistic pattern scale for a sewn item, pattern following the folds and seams naturally. Do not add text, logos or extra objects."
   },
-  "_comment": "variantName — назва варіанта для покупця (якщо порожньо, береться з назви тканини постачальника). shopifySku заповнюється автоматично кодом постачальника.",
+  "_comment": "products — ручні записи (необов'язково): тканина поза категоріями, своя назва (variantName) чи SKU (shopifySku; порожньо — код постачальника), або enabled: false — виключити тканину з категорії.",
   "products": [
     {
       "supplierUrl": "https://cottonville.com.ua/ua/p1736171204-flanel-rozhdestvenskie-oleni.html",

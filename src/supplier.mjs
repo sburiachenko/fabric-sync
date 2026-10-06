@@ -5,15 +5,7 @@ const IN_STOCK = ['готово до відправки', 'в наявності
 const OUT_OF_STOCK = ['немає в наявності', 'нет в наличии', 'під замовлення', 'под заказ', 'очікується', 'не доступний'];
 
 export async function fetchSupplierProduct(url) {
-  const res = await fetch(url, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128 Safari/537.36',
-      'Accept-Language': 'uk-UA,uk;q=0.9',
-    },
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status} для ${url}`);
-  const html = await res.text();
-  return parseSupplierHtml(html, url);
+  return parseSupplierHtml(await fetchHtml(url), url);
 }
 
 export function parseSupplierHtml(html, url = '') {
@@ -61,7 +53,60 @@ export function parseSupplierHtml(html, url = '') {
   return { url, name, code, price, status, available, image, checkedAt: new Date().toISOString() };
 }
 
+// ---------- Категорія (список товарів з усіма сторінками) ----------
+
+export async function fetchSupplierCategory(url, { maxPages = 50, pause = 1000 } = {}) {
+  const base = url.replace(/\/page_\d+\/?$/, '').replace(/\/$/, '');
+  const all = new Map();
+  for (let page = 1; page <= maxPages; page++) {
+    const pageUrl = page === 1 ? base : `${base}/page_${page}`;
+    const html = await fetchHtml(pageUrl);
+    const tiles = parseCategoryHtml(html, pageUrl);
+    for (const t of tiles) if (!all.has(t.url)) all.set(t.url, t);
+    if (!tiles.length || !html.includes(`/page_${page + 1}`)) break;
+    await new Promise((r) => setTimeout(r, pause));
+  }
+  if (!all.size) throw new Error(`У категорії ${url} не знайдено жодного товару — можливо, змінилась верстка сайту`);
+  return [...all.values()];
+}
+
+export function parseCategoryHtml(html, pageUrl = 'https://cottonville.com.ua/') {
+  const checkedAt = new Date().toISOString();
+  return html.split('data-qaid="product-block"').slice(1).map((block) => {
+    const href = block.match(/class="b-product-gallery__title"[^>]*href="([^"]+)"/)?.[1];
+    if (!href) return null;
+    const name = decodeEntities(block.match(/class="b-product-gallery__title"[^>]*>([^<]+)</)?.[1]?.trim() || '') || null;
+    const code = block.match(/b-product-gallery__sku"[^>]*>\s*<span[^>]*>([^<]+)</)?.[1]?.trim() || null;
+    const price = toNumber(block.match(/b-product-gallery__current-price"[^>]*>([^<]+)</)?.[1]?.replace(/[^\d.,\s]/g, ''));
+    const presence = block.match(/data-qaid="presence_data"[^>]*>([^<]+)</)?.[1]?.trim().toLowerCase() || '';
+    const status = findStatus(presence).status;
+    const image = block.match(/class="b-product-gallery__image"[^>]*src="([^"]+)"/)?.[1] || null;
+    return {
+      url: new URL(href, pageUrl).href,
+      name, code, price, status,
+      available: status ? IN_STOCK.includes(status) : null,
+      image, checkedAt,
+    };
+  }).filter(Boolean);
+}
+
+async function fetchHtml(url) {
+  const res = await fetch(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128 Safari/537.36',
+      'Accept-Language': 'uk-UA,uk;q=0.9',
+    },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status} для ${url}`);
+  return res.text();
+}
+
 // ---------- helpers ----------
+
+function decodeEntities(s) {
+  return s.replace(/&#(\d+);/g, (_, n) => String.fromCharCode(n)).replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'")
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+}
 
 function findStatus(lower) {
   let best = { status: null, pos: Infinity };

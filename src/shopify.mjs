@@ -61,24 +61,40 @@ export async function createShopifyClient({ shop, clientId, clientSecret }) {
   return {
     /** Товар з опціями та варіантами */
     async getProduct(productId) {
+      const variantFields = `
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          id title sku price inventoryPolicy inventoryItem { tracked } selectedOptions { name value }
+          media(first: 3) { nodes { id } }
+        }`;
       const data = await gql(
         `query($id: ID!) {
           product(id: $id) {
             id title handle status
             options { id name optionValues { name } }
             featuredMedia { preview { image { url } } }
-            variants(first: 100) {
-              nodes {
-                id title sku price inventoryPolicy inventoryItem { tracked } selectedOptions { name value }
-                media(first: 5) { nodes { id } }
-              }
-            }
+            variants(first: 100) { ${variantFields} }
           }
         }`,
         { id: toGid(productId) },
       );
       if (!data.product) throw new Error(`Товар ${productId} не знайдено в Shopify`);
-      return data.product;
+      const product = data.product;
+      // решта варіантів — посторінково
+      let page = product.variants;
+      const nodes = [...page.nodes];
+      while (page.pageInfo.hasNextPage) {
+        const next = await gql(
+          `query($id: ID!, $after: String) {
+            product(id: $id) { variants(first: 100, after: $after) { ${variantFields} } }
+          }`,
+          { id: product.id, after: page.pageInfo.endCursor },
+        );
+        page = next.product.variants;
+        nodes.push(...page.nodes);
+      }
+      product.variants = { nodes };
+      return product;
     },
 
     /** Додати опцію (напр. "Тканина") з першим значенням. Стандартний варіант отримає це значення. */
@@ -95,16 +111,16 @@ export async function createShopifyClient({ shop, clientId, clientSecret }) {
       return check(data.productOptionsCreate);
     },
 
-    /** Створити варіанти пачкою */
-    async createVariants(productId, variants) {
+    /** Створити варіанти пачкою; media — нові зображення товару (варіант посилається через mediaSrc) */
+    async createVariants(productId, variants, media = []) {
       const data = await gql(
-        `mutation($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
-          productVariantsBulkCreate(productId: $productId, variants: $variants) {
+        `mutation($productId: ID!, $variants: [ProductVariantsBulkInput!]!, $media: [CreateMediaInput!]) {
+          productVariantsBulkCreate(productId: $productId, variants: $variants, media: $media) {
             productVariants { id title sku }
             userErrors { field message }
           }
         }`,
-        { productId: toGid(productId), variants },
+        { productId: toGid(productId), variants, media: media.length ? media : null },
       );
       return check(data.productVariantsBulkCreate).productVariants;
     },
@@ -206,42 +222,6 @@ export async function createShopifyClient({ shop, clientId, clientSecret }) {
       );
       check(ap.productVariantAppendMedia);
       return media.id;
-    },
-
-    /** Знайти варіант за SKU */
-    async findVariantBySku(sku) {
-      const data = await gql(
-        `query($q: String!) {
-          productVariants(first: 5, query: $q) {
-            nodes {
-              id sku price inventoryPolicy
-              inventoryItem { tracked }
-              product { id title handle status }
-            }
-          }
-        }`,
-        { q: `sku:${JSON.stringify(sku)}` },
-      );
-      return data.productVariants.nodes.find((v) => v.sku === sku) || null;
-    },
-
-    /** Оновити ціну та/або політику наявності варіанта */
-    async updateVariant(productId, variantId, { price, inventoryPolicy }) {
-      const input = { id: variantId };
-      if (price != null) input.price = String(price);
-      if (inventoryPolicy) input.inventoryPolicy = inventoryPolicy;
-      const data = await gql(
-        `mutation($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
-          productVariantsBulkUpdate(productId: $productId, variants: $variants) {
-            productVariants { id price inventoryPolicy }
-            userErrors { field message }
-          }
-        }`,
-        { productId, variants: [input] },
-      );
-      const errs = data.productVariantsBulkUpdate.userErrors;
-      if (errs.length) throw new Error(`Shopify userErrors: ${JSON.stringify(errs)}`);
-      return data.productVariantsBulkUpdate.productVariants[0];
     },
   };
 }
